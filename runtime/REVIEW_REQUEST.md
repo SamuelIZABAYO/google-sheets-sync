@@ -1,22 +1,19 @@
-# Review Request — Task 7: Core Sync Logic - source_to_sheet (SQLite-adapted)
+# Review Request — Task 9: Frontend Dashboard Shell & Authentication
 
 ## What was built
-Implemented the core sync executor for `source_to_sheet` and wired it into the Task 6 worker scaffold. The worker now executes real sync runs by reading from a SQLite source and writing rows to Google Sheets using stored encrypted OAuth tokens.
+Implemented a new React + Vite frontend app (`apps/web`) with a protected dashboard shell and JWT login flow wired to backend auth endpoints (`/auth/login`, `/auth/me`). Added Docker/Caddy routing so Hetzner deployment serves the SPA over HTTPS while forwarding API routes to the Fastify backend and preserving Upstash Redis-backed backend architecture.
 
 ## PR
-Pending (subagent flow commits/pushes branch directly)
+TBD (will be filled after PR creation)
 
 ## Files changed
-- `apps/api/src/services/source-to-sheet-sync-executor.ts`: New core executor implementation
-  - Loads sync job + Google token for user
-  - Decrypts access token
-  - Reads source rows from SQLite (`source.table` or fallback to `sourceSpreadsheetId`)
-  - Applies `fieldMapping`
-  - Clears/replaces or appends to Google Sheet via Sheets API
-  - Returns run metrics/result payload
-- `apps/api/src/app.ts`: Replaced placeholder executor wiring with `SourceToSheetSyncExecutor`
-- `apps/api/src/services/sync-worker-pool.ts`: Hardened run lifecycle so executor exceptions mark run/job as failed (instead of leaving runs in `running`)
-- `apps/api/test/sync-source-to-sheet-executor.test.ts`: New test validating SQLite source extraction + Google Sheets write request payload
+- `apps/web/*`: new frontend app (routing, auth context, login page, protected dashboard shell, tests, Vite config, Dockerfile, nginx config)
+- `package.json`: root workspace scripts updated to include frontend build/test/typecheck and `dev:web`
+- `package-lock.json`: dependency lock updates for frontend workspace
+- `.env.example`: added `VITE_API_BASE_URL`
+- `Caddyfile`: split routing (API paths to `api`, all other paths to `web`)
+- `docker-compose.yml`: added `web` service and caddy dependency wiring
+- `README.md`: documented frontend app and task 9 architecture updates
 
 ## Security checklist
 - [x] No hardcoded secrets
@@ -25,25 +22,24 @@ Pending (subagent flow commits/pushes branch directly)
 - [x] Input validated at boundary
 - [x] Errors don't expose internals
 - [x] Bcrypt used for any passwords
-- [x] Dependency audit: PASSED
+- [x] Dependency audit: PASSED (`npm audit --audit-level=high`)
 
 ## Tests
-- Unit: `apps/api/test/sync-source-to-sheet-executor.test.ts`
-- Integration: existing sync worker/API tests unchanged and passing
-- Type check: PASSED
-- Test suite: PASSED
+- Unit: `apps/web/src/test/api.test.ts`
+- Integration: `apps/web/src/test/auth-context.test.tsx`
+- Type check: PASSED (`npm run typecheck`)
+- Test suite: PASSED (`npm run test`)
 
 ## Migration notes
 - DB changes: None
 - Breaking API changes: None
 
 ## Rollback
-- How to undo: revert commit for Task 7 branch or reset to previous commit
+- How to undo: revert merge commit for Task 9, then redeploy containers
 - Data loss: NO
 
 ## Self-assessed risks
-- Access token refresh flow is not yet implemented in executor (depends on future refresh-token handling path).
-- Current source implementation supports SQLite (as required by architecture) and explicitly rejects non-SQLite source types.
+- Caddy API route matcher currently targets known backend paths (`/auth*`, `/sync-jobs*`, `/health*`, `/webhooks*`); if new backend route prefixes are introduced later, Caddy routes should be expanded accordingly.
 
 ## Task spec reference
-Start Task 7: Core Sync Logic - source_to_sheet for Postgres (adapt for SQLite). Implement core sync logic to synchronize data from source databases to Google Sheets, replacing Task 6 placeholder executor and maintaining compatibility with Hetzner + SQLite + Upstash Redis REST + Caddy HTTPS architecture.
+Start Task 9: Frontend Dashboard Shell & Authentication. Build initial React + Vite frontend shell for the web app, including login flow integrated with backend JWT authentication. Align with Hetzner + Caddy HTTPS + Upstash Redis REST-backed backend architecture.

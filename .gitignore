@@ -5,4 +5,5 @@ dist
 .env.local
 .DS_Store
 coverage
+*.tsbuildinfo
 apps/api/data

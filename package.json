@@ -8,11 +8,12 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @gssync/api",
+    "build": "npm run build -w @gssync/api && npm run build -w @gssync/web",
     "dev": "npm run dev -w @gssync/api",
+    "dev:web": "npm run dev -w @gssync/web",
     "start": "npm run start -w @gssync/api",
-    "test": "npm run test -w @gssync/api",
-    "typecheck": "npm run typecheck -w @gssync/api"
+    "test": "npm run test -w @gssync/api && npm run test -w @gssync/web",
+    "typecheck": "npm run typecheck -w @gssync/api && npm run typecheck -w @gssync/web"
   },
   "engines": {
     "node": ">=22.0.0"
