@@ -251,4 +251,107 @@ describe('sync jobs API routes', () => {
 
     expect(patch.statusCode).toBe(400);
   });
+
+  it('returns 400 for invalid cron validation combinations', async () => {
+    const token = await registerAndLogin('sync-cron-invalid@example.com');
+
+    const missingCronForSchedule = await app.inject({
+      method: 'POST',
+      url: '/sync-jobs',
+      headers: {
+        authorization: `Bearer ${token}`
+      },
+      payload: {
+        name: 'Missing cron',
+        sourceSpreadsheetId: 'sheet-missing-cron',
+        destinationType: 'sqlite',
+        destinationConfig: { table: 'sync_data' },
+        fieldMapping: { id: 'id' },
+        triggerType: 'schedule'
+      }
+    });
+
+    expect(missingCronForSchedule.statusCode).toBe(400);
+
+    const invalidCronForSchedule = await app.inject({
+      method: 'POST',
+      url: '/sync-jobs',
+      headers: {
+        authorization: `Bearer ${token}`
+      },
+      payload: {
+        name: 'Invalid cron',
+        sourceSpreadsheetId: 'sheet-invalid-cron',
+        destinationType: 'sqlite',
+        destinationConfig: { table: 'sync_data' },
+        fieldMapping: { id: 'id' },
+        triggerType: 'schedule',
+        cronExpression: 'bad cron'
+      }
+    });
+
+    expect(invalidCronForSchedule.statusCode).toBe(400);
+
+    const cronForManual = await app.inject({
+      method: 'POST',
+      url: '/sync-jobs',
+      headers: {
+        authorization: `Bearer ${token}`
+      },
+      payload: {
+        name: 'Manual with cron',
+        sourceSpreadsheetId: 'sheet-manual-cron',
+        destinationType: 'sqlite',
+        destinationConfig: { table: 'sync_data' },
+        fieldMapping: { id: 'id' },
+        triggerType: 'manual',
+        cronExpression: '*/5 * * * *'
+      }
+    });
+
+    expect(cronForManual.statusCode).toBe(400);
+  });
+
+  it('returns 400 when running a paused job', async () => {
+    const token = await registerAndLogin('sync-run-paused@example.com');
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/sync-jobs',
+      headers: {
+        authorization: `Bearer ${token}`
+      },
+      payload: {
+        name: 'Run paused job',
+        sourceSpreadsheetId: 'sheet-paused-run',
+        destinationType: 'sqlite',
+        destinationConfig: { table: 'sync_data' },
+        fieldMapping: { id: 'id' }
+      }
+    });
+
+    const jobId = (create.json() as { job: { id: number } }).job.id;
+
+    await app.inject({
+      method: 'PATCH',
+      url: `/sync-jobs/${jobId}`,
+      headers: {
+        authorization: `Bearer ${token}`
+      },
+      payload: {
+        status: 'paused'
+      }
+    });
+
+    const run = await app.inject({
+      method: 'POST',
+      url: `/sync-jobs/${jobId}/run`,
+      headers: {
+        authorization: `Bearer ${token}`
+      }
+    });
+
+    expect(run.statusCode).toBe(400);
+    expect(run.json()).toEqual({ error: 'Sync job is not active' });
+  });
 });

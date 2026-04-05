@@ -187,17 +187,45 @@ export class SyncScheduler {
           status: 'queued'
         });
 
-        const queueMessageId = await this.syncQueue.enqueue({
-          runId: run.id,
-          jobId: job.id,
-          userId: job.userId,
-          triggerSource: 'schedule',
-          queuedAt: run.queuedAt
-        });
+        try {
+          const queueMessageId = await this.syncQueue.enqueue({
+            runId: run.id,
+            jobId: job.id,
+            userId: job.userId,
+            triggerSource: 'schedule',
+            queuedAt: run.queuedAt
+          });
 
-        this.syncRunRepository.setQueueMessageId(run.id, job.userId, queueMessageId);
+          this.syncRunRepository.setQueueMessageId(run.id, job.userId, queueMessageId);
 
-        this.logger.info({ jobId: job.id, userId: job.userId, runId: run.id }, 'scheduled sync run enqueued');
+          this.logger.info({ jobId: job.id, userId: job.userId, runId: run.id }, 'scheduled sync run enqueued');
+        } catch (error) {
+          const finishedAt = new Date().toISOString();
+          const errorMessage = error instanceof Error ? error.message : 'Failed to enqueue scheduled run';
+
+          this.syncRunRepository.complete({
+            id: run.id,
+            userId: job.userId,
+            status: 'failed',
+            finishedAt,
+            recordsProcessed: 0,
+            recordsSucceeded: 0,
+            recordsFailed: 0,
+            resultJson: null,
+            errorMessage,
+            errorDetailsJson: null
+          });
+
+          this.syncJobRepository.updateLastRun({
+            id: job.id,
+            userId: job.userId,
+            lastRunStatus: 'failed',
+            lastRunAt: finishedAt,
+            lastErrorMessage: errorMessage
+          });
+
+          this.logger.error({ jobId: job.id, userId: job.userId, runId: run.id, error }, 'scheduled sync enqueue failed');
+        }
       }
     } catch (error) {
       this.logger.error({ error }, 'sync scheduler tick failed');

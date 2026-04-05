@@ -10,36 +10,87 @@ import {
   SyncJobNotFoundError as SyncRunJobNotFoundError,
   SyncRunService
 } from '../services/sync-run-service.js';
+import { isCronExpressionValid } from '../services/sync-scheduler.js';
 
-const createSyncJobSchema = z.object({
-  name: z.string().min(1).max(200),
-  sourceSpreadsheetId: z.string().min(1).max(255),
-  sourceSheetName: z.string().min(1).max(255).nullable().optional(),
-  destinationType: z.string().min(1).max(100),
-  destinationConfig: z.record(z.string(), z.unknown()),
-  fieldMapping: z.record(z.string(), z.unknown()),
-  triggerType: z.enum(['manual', 'schedule', 'webhook']).optional(),
-  triggerConfig: z.record(z.string(), z.unknown()).nullable().optional(),
-  cronExpression: z.string().min(1).max(255).nullable().optional(),
-  queueTopic: z.string().min(1).max(100).optional()
-});
+const createSyncJobSchema = z
+  .object({
+    name: z.string().trim().min(1).max(200),
+    sourceSpreadsheetId: z.string().trim().min(1).max(255),
+    sourceSheetName: z.string().trim().min(1).max(255).nullable().optional(),
+    destinationType: z.string().trim().min(1).max(100),
+    destinationConfig: z.record(z.string(), z.unknown()),
+    fieldMapping: z.record(z.string(), z.unknown()),
+    triggerType: z.enum(['manual', 'schedule', 'webhook']).optional(),
+    triggerConfig: z.record(z.string(), z.unknown()).nullable().optional(),
+    cronExpression: z.string().trim().min(1).max(255).nullable().optional(),
+    queueTopic: z.string().trim().min(1).max(100).optional()
+  })
+  .superRefine((value, context) => {
+    const triggerType = value.triggerType ?? 'manual';
+
+    if (triggerType === 'schedule') {
+      if (!value.cronExpression) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['cronExpression'],
+          message: 'cronExpression is required for schedule trigger'
+        });
+        return;
+      }
+
+      if (!isCronExpressionValid(value.cronExpression)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['cronExpression'],
+          message: 'cronExpression is invalid'
+        });
+      }
+
+      return;
+    }
+
+    if (value.cronExpression !== undefined && value.cronExpression !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cronExpression'],
+        message: 'cronExpression is only allowed for schedule trigger'
+      });
+    }
+  });
 
 const updateSyncJobSchema = z
   .object({
-    name: z.string().min(1).max(200).optional(),
+    name: z.string().trim().min(1).max(200).optional(),
     status: z.enum(['active', 'paused', 'archived']).optional(),
-    sourceSpreadsheetId: z.string().min(1).max(255).optional(),
-    sourceSheetName: z.string().min(1).max(255).nullable().optional(),
-    destinationType: z.string().min(1).max(100).optional(),
+    sourceSpreadsheetId: z.string().trim().min(1).max(255).optional(),
+    sourceSheetName: z.string().trim().min(1).max(255).nullable().optional(),
+    destinationType: z.string().trim().min(1).max(100).optional(),
     destinationConfig: z.record(z.string(), z.unknown()).optional(),
     fieldMapping: z.record(z.string(), z.unknown()).optional(),
     triggerType: z.enum(['manual', 'schedule', 'webhook']).optional(),
     triggerConfig: z.record(z.string(), z.unknown()).nullable().optional(),
-    cronExpression: z.string().min(1).max(255).nullable().optional(),
-    queueTopic: z.string().min(1).max(100).optional()
+    cronExpression: z.string().trim().min(1).max(255).nullable().optional(),
+    queueTopic: z.string().trim().min(1).max(100).optional()
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: 'At least one field must be provided'
+  })
+  .superRefine((value, context) => {
+    if (value.cronExpression && !isCronExpressionValid(value.cronExpression)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cronExpression'],
+        message: 'cronExpression is invalid'
+      });
+    }
+
+    if (value.triggerType && value.triggerType !== 'schedule' && value.cronExpression !== undefined && value.cronExpression !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['cronExpression'],
+        message: 'cronExpression is only allowed for schedule trigger'
+      });
+    }
   });
 
 const idParamSchema = z.object({
