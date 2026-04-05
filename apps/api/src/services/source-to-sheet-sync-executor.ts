@@ -1,8 +1,9 @@
 import Database from 'better-sqlite3';
 import type { FastifyBaseLogger } from 'fastify';
-import { GoogleTokenRepository } from '../db/google-token-repository.js';
+import { GoogleTokenRepository, type GoogleTokenRecord } from '../db/google-token-repository.js';
 import { SyncJobRepository } from '../db/sync-job-repository.js';
-import { decryptToken } from './token-crypto.js';
+import { GoogleOAuthService } from './google-oauth-service.js';
+import { decryptToken, encryptToken } from './token-crypto.js';
 import type { SyncExecutor, SyncExecutorResult } from './sync-worker-pool.js';
 
 type DestinationConfig = {
@@ -52,6 +53,7 @@ function quoteSqliteIdentifier(input: string): string {
 export class SourceToSheetSyncExecutor implements SyncExecutor {
   private readonly syncJobRepository: SyncJobRepository;
   private readonly googleTokenRepository: GoogleTokenRepository;
+  private readonly googleOAuthService: GoogleOAuthService;
 
   constructor(
     private readonly appDb: Database.Database,
@@ -59,6 +61,7 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
   ) {
     this.syncJobRepository = new SyncJobRepository(appDb);
     this.googleTokenRepository = new GoogleTokenRepository(appDb);
+    this.googleOAuthService = new GoogleOAuthService();
   }
 
   async execute(input: { jobId: number; userId: number; runId: number }): Promise<SyncExecutorResult> {
@@ -88,18 +91,34 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
 
     values.push(...mappedRows);
 
-    const accessToken = decryptToken(tokenRecord.encryptedAccessToken);
+    let accessToken = await this.getValidAccessToken(input.userId, tokenRecord);
 
     const sheetName = destinationConfig.sheetName;
     const width = Math.max(headerRow.length, 1);
     const range = `'${sheetName.replaceAll("'", "''")}'!A1:${toA1Column(width - 1)}`;
 
-    if (destinationConfig.writeMode !== 'append') {
-      await this.clearRange(destinationConfig.spreadsheetId, `'${sheetName.replaceAll("'", "''")}'`, accessToken);
-    }
+    try {
+      if (destinationConfig.writeMode !== 'append') {
+        await this.clearRange(destinationConfig.spreadsheetId, `'${sheetName.replaceAll("'", "''")}'`, accessToken);
+      }
 
-    if (values.length > 0) {
-      await this.writeValues(destinationConfig.spreadsheetId, range, values, accessToken);
+      if (values.length > 0) {
+        await this.writeValues(destinationConfig.spreadsheetId, range, values, accessToken);
+      }
+    } catch (error) {
+      if (!this.shouldRetryAfterUnauthorized(error) || !tokenRecord.encryptedRefreshToken) {
+        throw error;
+      }
+
+      accessToken = await this.refreshAndPersistAccessToken(input.userId, tokenRecord);
+
+      if (destinationConfig.writeMode !== 'append') {
+        await this.clearRange(destinationConfig.spreadsheetId, `'${sheetName.replaceAll("'", "''")}'`, accessToken);
+      }
+
+      if (values.length > 0) {
+        await this.writeValues(destinationConfig.spreadsheetId, range, values, accessToken);
+      }
     }
 
     return {
@@ -171,6 +190,54 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
 
   private mapRow(row: JsonRow, fieldMapping: Record<string, string>): Array<string | number | boolean> {
     return Object.keys(fieldMapping).map((sourceField) => normalizeCell(row[sourceField]));
+  }
+
+  private async getValidAccessToken(userId: number, tokenRecord: GoogleTokenRecord): Promise<string> {
+    const accessToken = decryptToken(tokenRecord.encryptedAccessToken);
+    const expiresAtMs = new Date(tokenRecord.expiresAt).getTime();
+    const refreshThresholdMs = Date.now() + 60_000;
+
+    if (Number.isNaN(expiresAtMs) || expiresAtMs > refreshThresholdMs) {
+      return accessToken;
+    }
+
+    if (!tokenRecord.encryptedRefreshToken) {
+      this.logger.warn({ userId }, 'google access token expired and no refresh token is available');
+      return accessToken;
+    }
+
+    return this.refreshAndPersistAccessToken(userId, tokenRecord);
+  }
+
+  private async refreshAndPersistAccessToken(userId: number, tokenRecord: GoogleTokenRecord): Promise<string> {
+    const refreshToken = tokenRecord.encryptedRefreshToken ? decryptToken(tokenRecord.encryptedRefreshToken) : null;
+    if (!refreshToken) {
+      throw new Error('Google OAuth refresh token is missing');
+    }
+
+    const refreshed = await this.googleOAuthService.refreshAccessToken(refreshToken);
+
+    const expiresAt = new Date(Date.now() + Math.max(0, refreshed.expires_in) * 1000).toISOString();
+    this.googleTokenRepository.upsert({
+      userId,
+      googleSub: tokenRecord.googleSub,
+      encryptedAccessToken: encryptToken(refreshed.access_token),
+      encryptedRefreshToken: refreshed.refresh_token ? encryptToken(refreshed.refresh_token) : null,
+      scope: refreshed.scope || tokenRecord.scope,
+      expiresAt
+    });
+
+    this.logger.info({ userId, expiresAt }, 'google access token refreshed');
+
+    return refreshed.access_token;
+  }
+
+  private shouldRetryAfterUnauthorized(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false;
+    }
+
+    return error.message.includes('status 401');
   }
 
   private async clearRange(spreadsheetId: string, range: string, accessToken: string): Promise<void> {

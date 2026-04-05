@@ -23,7 +23,7 @@ const envSchema = z.object({
   SYNC_SCHEDULER_INTERVAL_SEC: z.coerce.number().int().min(5).max(300).default(30),
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
-  GOOGLE_OAUTH_SCOPES: z.string().default('openid email profile https://www.googleapis.com/auth/spreadsheets.readonly'),
+  GOOGLE_OAUTH_SCOPES: z.string().default('openid email profile https://www.googleapis.com/auth/spreadsheets'),
   GOOGLE_OAUTH_REDIRECT_URI: z.string().url().optional(),
   TOKEN_ENCRYPTION_KEY: z.string().min(1)
 });

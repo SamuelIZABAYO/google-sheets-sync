@@ -112,16 +112,6 @@ From repo root:
 
 ## Google OAuth2 endpoints (Task 3)
 
--  → returns  + CSRF 
--  → exchanges code, fetches Google profile, stores encrypted access/refresh tokens, returns app JWT
-
-Token storage details:
-- OAuth state is stored with TTL in **Upstash Redis REST** when configured; otherwise falls back to SQLite table .
-- Google access/refresh tokens are encrypted at rest with  (AES-256-GCM) in SQLite table .
-- Callback URL defaults to , designed for **Caddy TLS** on Hetzner.
-
-## Google OAuth2 endpoints (Task 3)
-
 - `GET /auth/google/start` → returns `authorizationUrl` + CSRF `state`
 - `GET /auth/google/callback?code=...&state=...` → exchanges code, fetches Google profile, stores encrypted access/refresh tokens, returns app JWT
 
@@ -129,6 +119,7 @@ Token storage details:
 - OAuth state is stored with TTL in **Upstash Redis REST** when configured; otherwise falls back to SQLite table `oauth_states`.
 - Google access/refresh tokens are encrypted at rest with `TOKEN_ENCRYPTION_KEY` (AES-256-GCM) in SQLite table `google_oauth_tokens`.
 - Callback URL defaults to `https://APP_DOMAIN/auth/google/callback`, designed for **Caddy TLS** on Hetzner.
+- Sync executor now auto-refreshes expired Google access tokens using the stored refresh token, then persists the new encrypted token and updated expiry.
 
 ## Job queue + workers (Task 6)
 
@@ -143,6 +134,7 @@ Token storage details:
 - Login form uses backend `POST /auth/login` and stores JWT access token in localStorage.
 - On app load, frontend validates token with `GET /auth/me`.
 - Protected dashboard route redirects unauthenticated users to `/login`.
+- Dashboard form UX includes inline form-specific errors and JSON format helpers for config fields.
 - Caddy routes API paths (`/auth*`, `/sync-jobs*`, `/health*`, `/webhooks*`) to the API container and all other paths to the frontend container.
 
 ## Cron scheduler process (Task 8)
