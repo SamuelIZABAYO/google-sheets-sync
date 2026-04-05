@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import { createDatabase } from './db/sqlite.js';
 import { healthRoute } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
+import { syncJobRoutes } from './routes/sync-jobs.js';
 import './types.js';
 
 export function buildApp() {
@@ -17,6 +18,7 @@ export function buildApp() {
 
   app.register(healthRoute);
   app.register(authRoutes);
+  app.register(syncJobRoutes);
 
   app.addHook('onClose', async () => {
     db.close();
