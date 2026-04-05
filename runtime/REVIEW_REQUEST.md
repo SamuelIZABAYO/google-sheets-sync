@@ -1,18 +1,26 @@
-# Review Request — Task 4: Sync Job & Run Models (DB Schema)
+# Review Request — Task 6: Job Queue & Worker Setup
 
 ## What was built
-Implemented SQLite schema upgrades for `sync_jobs` and new `sync_runs` with trigger/status/result history fields, ownership scoping, and indexes. Added strongly-typed sync job/run models and repositories with user-scoped access methods to prevent cross-user data access. Added integration tests validating schema, CRUD flow, run lifecycle, and security boundaries.
+Implemented Redis-backed sync run queueing using Upstash Redis REST and added a scalable in-process worker pool for background execution. Added authenticated API trigger endpoint to enqueue runs and persist lifecycle transitions in SQLite. Added tests covering queueing behavior and worker processing.
 
 ## PR
-Pending push/PR creation by main agent.
+Pending (to be created after push)
 
 ## Files changed
-- `apps/api/src/db/sqlite.ts`: expanded sync schema, migration guards for legacy DBs, run table + triggers + indexes
-- `apps/api/src/models/sync-job.ts`: sync job types and status/trigger enums
-- `apps/api/src/models/sync-run.ts`: sync run types and lifecycle input models
-- `apps/api/src/db/sync-job-repository.ts`: user-scoped sync job data access methods
-- `apps/api/src/db/sync-run-repository.ts`: user-scoped sync run history lifecycle methods
-- `apps/api/test/sync-models.test.ts`: integration tests for schema + repositories + cross-user isolation
+- `.env.example`: added queue/worker env vars.
+- `README.md`: documented Task 6 queue + worker behavior and endpoint.
+- `apps/api/src/config/env.ts`: added queue key, worker concurrency, and poll timeout config.
+- `apps/api/src/services/upstash-redis-client.ts`: added `LPUSH`/`BRPOP` command support.
+- `apps/api/src/services/sync-queue.ts`: new queue abstraction + Upstash implementation.
+- `apps/api/src/services/sync-run-service.ts`: new service to validate/enqueue manual runs.
+- `apps/api/src/services/sync-worker-pool.ts`: new scalable worker pool + placeholder executor.
+- `apps/api/src/app.ts`: wired queue creation, Fastify decoration, worker pool startup/shutdown hooks.
+- `apps/api/src/types.ts`: added `syncQueue` Fastify instance typing.
+- `apps/api/src/routes/sync-jobs.ts`: added `POST /sync-jobs/:id/run` endpoint.
+- `apps/api/src/db/sync-run-repository.ts`: added queue message ID update and safe claim semantics.
+- `apps/api/src/db/sync-job-repository.ts`: restored/generalized update + delete methods used by service layer.
+- `apps/api/test/sync-jobs-api.test.ts`: added queue-run endpoint test coverage.
+- `apps/api/test/sync-worker-pool.test.ts`: added worker processing integration test.
 
 ## Security checklist
 - [x] No hardcoded secrets
@@ -24,25 +32,22 @@ Pending push/PR creation by main agent.
 - [x] Dependency audit: PASSED
 
 ## Tests
-- Unit: None — repository/model work validated with integration-level DB tests
-- Integration: `apps/api/test/sync-models.test.ts`
-- Manual steps:
-  1. `npm run typecheck` → passes
-  2. `npm run test` → all tests pass
-  3. `npm audit --audit-level=high` → no vulnerabilities
-- Type check: PASSED
-- Test suite: PASSED
+- Unit: `apps/api/test/sync-worker-pool.test.ts`
+- Integration: `apps/api/test/sync-jobs-api.test.ts`
+- Type check: PASSED (`npm run typecheck`)
+- Test suite: PASSED (`npm run test`)
 
 ## Migration notes
-- DB changes: `sync_jobs` expanded with ownership/config/trigger/run summary columns; `sync_runs` table added for run history
-- Breaking API changes: None (no existing sync API handlers yet)
+- DB changes: None (uses existing sync_runs/sync_jobs schema)
+- Breaking API changes: None (additive endpoint only)
 
 ## Rollback
-- How to undo: revert this commit and redeploy previous image
-- Data loss: NO (adds columns/tables only)
+- How to undo: revert this task commit, redeploy API process.
+- Data loss: NO
 
 ## Self-assessed risks
-- Legacy databases with `sync_jobs` rows created before `user_id` existed may need backfill strategy before enforcing NOT NULL at app/API layer.
+- Worker currently uses a placeholder sync executor scaffold; actual Google Sheets read/write execution logic remains for the next task.
+- In-process workers scale per API instance; if multiple instances run, ensure idempotent execution expectations are maintained (claiming guard added via queued→running transition).
 
 ## Task spec reference
-Task 4: Sync Job & Run Models (DB Schema) — implement SQLite schema and models for sync jobs/runs including config, triggers, status, run results/history, compatibility with existing user/auth, and secure data access aligned to Hetzner + SQLite + Upstash Redis REST + Caddy architecture.
+Start Task 6: Job Queue & Worker Setup. Implement Redis-backed job queue integration with Upstash Redis REST API and a scalable pool of background workers to execute sync jobs. Adapt to updated architecture with SQLite backend, Hetzner deployment, and Caddy HTTPS.

@@ -3,13 +3,31 @@ import { createDatabase } from './db/sqlite.js';
 import { healthRoute } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { syncJobRoutes } from './routes/sync-jobs.js';
+import { createSyncQueueFromEnv, type SyncQueue } from './services/sync-queue.js';
+import {
+  PlaceholderSyncExecutor,
+  SyncWorkerPool,
+  workerPoolConfigFromEnv,
+  type SyncExecutor
+} from './services/sync-worker-pool.js';
+import { SyncJobRepository } from './db/sync-job-repository.js';
+import { SyncRunRepository } from './db/sync-run-repository.js';
 import './types.js';
 
-export function buildApp() {
+type BuildAppOptions = {
+  syncQueue?: SyncQueue | null;
+  disableWorkers?: boolean;
+  syncExecutor?: SyncExecutor;
+};
+
+export function buildApp(options: BuildAppOptions = {}) {
   const app = Fastify({ logger: true });
   const db = createDatabase();
 
+  const syncQueue = options.syncQueue ?? createSyncQueueFromEnv();
+
   app.decorate('sqlite', db);
+  app.decorate('syncQueue', syncQueue);
 
   app.get('/', async () => ({
     ok: true,
@@ -20,7 +38,35 @@ export function buildApp() {
   app.register(authRoutes);
   app.register(syncJobRoutes);
 
+  let workerPool: SyncWorkerPool | null = null;
+
+  app.addHook('onReady', async () => {
+    if (options.disableWorkers || !syncQueue) {
+      return;
+    }
+
+    const syncRunRepository = new SyncRunRepository(db);
+    const syncJobRepository = new SyncJobRepository(db);
+    const workerConfig = workerPoolConfigFromEnv();
+
+    workerPool = new SyncWorkerPool(
+      app.log,
+      syncQueue,
+      syncRunRepository,
+      syncJobRepository,
+      options.syncExecutor ?? new PlaceholderSyncExecutor(),
+      workerConfig.concurrency,
+      workerConfig.pollTimeoutSeconds
+    );
+
+    workerPool.start();
+  });
+
   app.addHook('onClose', async () => {
+    if (workerPool) {
+      await workerPool.stop();
+    }
+
     db.close();
   });
 

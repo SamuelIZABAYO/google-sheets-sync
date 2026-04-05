@@ -26,6 +26,23 @@ export class UpstashRedisClient {
     await this.call(['DEL', key]);
   }
 
+  async lpush(key: string, value: string): Promise<number> {
+    const result = await this.call(['LPUSH', key, value]);
+    return typeof result === 'number' ? result : Number(result ?? 0);
+  }
+
+  async brpop(key: string, timeoutSeconds: number): Promise<string | null> {
+    const result = await this.call(['BRPOP', key, String(timeoutSeconds)]);
+
+    if (!Array.isArray(result) || result.length < 2) {
+      return null;
+    }
+
+    const value = result[1];
+
+    return typeof value === 'string' ? value : null;
+  }
+
   private async call(command: string[]): Promise<unknown> {
     const response = await fetch(`${this.baseUrl}/pipeline`, {
       method: 'POST',

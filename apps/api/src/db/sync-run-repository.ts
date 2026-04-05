@@ -95,9 +95,17 @@ export class SyncRunRepository {
     return rows.map(mapRow);
   }
 
+  setQueueMessageId(id: number, userId: number, queueMessageId: string): boolean {
+    const result = this.db
+      .prepare(`UPDATE sync_runs SET queue_message_id = ? WHERE id = ? AND user_id = ?`)
+      .run(queueMessageId, id, userId);
+
+    return result.changes > 0;
+  }
+
   markRunning(id: number, userId: number, startedAt: string): boolean {
     const result = this.db
-      .prepare(`UPDATE sync_runs SET status = 'running', started_at = ? WHERE id = ? AND user_id = ?`)
+      .prepare(`UPDATE sync_runs SET status = 'running', started_at = ? WHERE id = ? AND user_id = ? AND status = 'queued'`)
       .run(startedAt, id, userId);
 
     return result.changes > 0;

@@ -3,6 +3,7 @@ import Fastify from 'fastify';
 import type Database from 'better-sqlite3';
 import type { authRoutes as AuthRoutes } from '../src/routes/auth.js';
 import type { syncJobRoutes as SyncJobRoutes } from '../src/routes/sync-jobs.js';
+import type { SyncQueue, SyncQueueMessage } from '../src/services/sync-queue.js';
 
 const JWT_SECRET = 'test-secret-key-with-32-characters!!';
 
@@ -11,6 +12,19 @@ describe('sync jobs API routes', () => {
   let db: Database.Database;
   let authRoutes: typeof AuthRoutes;
   let syncJobRoutes: typeof SyncJobRoutes;
+
+  class FakeSyncQueue implements SyncQueue {
+    public messages: SyncQueueMessage[] = [];
+
+    async enqueue(message: SyncQueueMessage): Promise<string> {
+      this.messages.push(message);
+      return `msg-${message.runId}`;
+    }
+
+    async dequeueBlocking(_timeoutSeconds: number): Promise<SyncQueueMessage | null> {
+      return this.messages.shift() ?? null;
+    }
+  }
 
   beforeAll(async () => {
     process.env.NODE_ENV = 'test';
@@ -29,6 +43,7 @@ describe('sync jobs API routes', () => {
     ({ syncJobRoutes } = await import('../src/routes/sync-jobs.js'));
 
     app.decorate('sqlite', db);
+    app.decorate('syncQueue', new FakeSyncQueue());
     await app.register(authRoutes);
     await app.register(syncJobRoutes);
   });
@@ -171,6 +186,38 @@ describe('sync jobs API routes', () => {
     });
 
     expect((ownerListAfterDelete.json() as { jobs: Array<{ id: number }> }).jobs).toHaveLength(0);
+  });
+
+  it('queues a manual sync run for an active job', async () => {
+    const token = await registerAndLogin('sync-run@example.com');
+
+    const create = await app.inject({
+      method: 'POST',
+      url: '/sync-jobs',
+      headers: {
+        authorization: `Bearer ${token}`
+      },
+      payload: {
+        name: 'Run me',
+        sourceSpreadsheetId: 'sheet-run',
+        destinationType: 'sqlite',
+        destinationConfig: { table: 'sync_data' },
+        fieldMapping: { id: 'id' }
+      }
+    });
+
+    const jobId = (create.json() as { job: { id: number } }).job.id;
+
+    const run = await app.inject({
+      method: 'POST',
+      url: `/sync-jobs/${jobId}/run`,
+      headers: {
+        authorization: `Bearer ${token}`
+      }
+    });
+
+    expect(run.statusCode).toBe(202);
+    expect((run.json() as { run: { status: string; queueMessageId: string | null } }).run.status).toBe('queued');
   });
 
   it('returns 400 for invalid request body', async () => {

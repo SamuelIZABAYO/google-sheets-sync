@@ -47,8 +47,11 @@ Required vars:
 - `DATABASE_PATH` (default `/data/app.db`)
 - `JWT_SECRET` (**required**, min 32 chars)
 - `JWT_EXPIRES_IN` (default `7d`)
-- `UPSTASH_REDIS_REST_URL` (optional for current phase)
-- `UPSTASH_REDIS_REST_TOKEN` (optional for current phase)
+- `UPSTASH_REDIS_REST_URL` (required for Redis queue + OAuth state)
+- `UPSTASH_REDIS_REST_TOKEN` (required for Redis queue + OAuth state)
+- `SYNC_QUEUE_KEY` (default `sync-jobs`)
+- `SYNC_WORKER_CONCURRENCY` (default `2`)
+- `SYNC_WORKER_POLL_TIMEOUT_SEC` (default `15`)
 
 ## Local development
 
@@ -121,3 +124,10 @@ Token storage details:
 - OAuth state is stored with TTL in **Upstash Redis REST** when configured; otherwise falls back to SQLite table `oauth_states`.
 - Google access/refresh tokens are encrypted at rest with `TOKEN_ENCRYPTION_KEY` (AES-256-GCM) in SQLite table `google_oauth_tokens`.
 - Callback URL defaults to `https://APP_DOMAIN/auth/google/callback`, designed for **Caddy TLS** on Hetzner.
+
+## Job queue + workers (Task 6)
+
+- `POST /sync-jobs/:id/run` enqueues a manual sync run and returns `202` with a queued run record.
+- Sync run messages are pushed to an Upstash Redis list via REST (`LPUSH`/`BRPOP`).
+- API process starts a background worker pool (`SYNC_WORKER_CONCURRENCY`) that long-polls queue and executes runs.
+- Run lifecycle updates are persisted in SQLite (`sync_runs` + `sync_jobs.last_run_*`).
