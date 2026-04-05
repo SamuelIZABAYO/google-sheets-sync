@@ -103,6 +103,20 @@ export class SyncRunRepository {
     return result.changes > 0;
   }
 
+  hasRunQueuedSince(jobId: number, userId: number, sinceIso: string): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT id
+         FROM sync_runs
+         WHERE job_id = ? AND user_id = ? AND datetime(queued_at) >= datetime(?)
+         ORDER BY id DESC
+         LIMIT 1`
+      )
+      .get(jobId, userId, sinceIso) as { id: number } | undefined;
+
+    return Boolean(row);
+  }
+
   markRunning(id: number, userId: number, startedAt: string): boolean {
     const result = this.db
       .prepare(`UPDATE sync_runs SET status = 'running', started_at = ? WHERE id = ? AND user_id = ? AND status = 'queued'`)

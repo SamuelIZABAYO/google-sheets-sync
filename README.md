@@ -52,6 +52,8 @@ Required vars:
 - `SYNC_QUEUE_KEY` (default `sync-jobs`)
 - `SYNC_WORKER_CONCURRENCY` (default `2`)
 - `SYNC_WORKER_POLL_TIMEOUT_SEC` (default `15`)
+- `SYNC_SCHEDULER_ENABLED` (default `true`)
+- `SYNC_SCHEDULER_INTERVAL_SEC` (default `30`)
 
 ## Local development
 
@@ -131,3 +133,11 @@ Token storage details:
 - Sync run messages are pushed to an Upstash Redis list via REST (`LPUSH`/`BRPOP`).
 - API process starts a background worker pool (`SYNC_WORKER_CONCURRENCY`) that long-polls queue and executes runs.
 - Run lifecycle updates are persisted in SQLite (`sync_runs` + `sync_jobs.last_run_*`).
+
+## Cron scheduler process (Task 8)
+
+- Background scheduler scans SQLite `sync_jobs` for active scheduled jobs (`trigger_type='schedule'`) at `SYNC_SCHEDULER_INTERVAL_SEC`.
+- Cron expression format: standard 5-field UTC cron (`minute hour day month weekday`).
+- For each due job, scheduler creates a queued `sync_runs` record and enqueues a message via Upstash Redis REST queue.
+- Duplicate scheduling in the same minute is prevented using SQLite `sync_runs.queued_at` checks.
+- Designed to run in the API process behind Caddy/HTTPS on Hetzner, with SQLite as system of record.

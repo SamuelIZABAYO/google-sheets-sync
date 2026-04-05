@@ -12,6 +12,7 @@ import {
 } from './services/sync-worker-pool.js';
 import { SyncJobRepository } from './db/sync-job-repository.js';
 import { SyncRunRepository } from './db/sync-run-repository.js';
+import { schedulerConfigFromEnv, SyncScheduler } from './services/sync-scheduler.js';
 import './types.js';
 
 type BuildAppOptions = {
@@ -39,6 +40,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.register(syncJobRoutes);
 
   let workerPool: SyncWorkerPool | null = null;
+  let scheduler: SyncScheduler | null = null;
 
   app.addHook('onReady', async () => {
     if (options.disableWorkers || !syncQueue) {
@@ -60,9 +62,19 @@ export function buildApp(options: BuildAppOptions = {}) {
     );
 
     workerPool.start();
+
+    const schedulerConfig = schedulerConfigFromEnv();
+    if (schedulerConfig.enabled) {
+      scheduler = new SyncScheduler(app.log, syncJobRepository, syncRunRepository, syncQueue, schedulerConfig.intervalMs);
+      scheduler.start();
+    }
   });
 
   app.addHook('onClose', async () => {
+    if (scheduler) {
+      await scheduler.stop();
+    }
+
     if (workerPool) {
       await workerPool.stop();
     }
