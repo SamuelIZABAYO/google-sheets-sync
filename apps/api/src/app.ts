@@ -4,12 +4,8 @@ import { healthRoute } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { syncJobRoutes } from './routes/sync-jobs.js';
 import { createSyncQueueFromEnv, type SyncQueue } from './services/sync-queue.js';
-import {
-  PlaceholderSyncExecutor,
-  SyncWorkerPool,
-  workerPoolConfigFromEnv,
-  type SyncExecutor
-} from './services/sync-worker-pool.js';
+import { SyncWorkerPool, workerPoolConfigFromEnv, type SyncExecutor } from './services/sync-worker-pool.js';
+import { SourceToSheetSyncExecutor } from './services/source-to-sheet-sync-executor.js';
 import { SyncJobRepository } from './db/sync-job-repository.js';
 import { SyncRunRepository } from './db/sync-run-repository.js';
 import { schedulerConfigFromEnv, SyncScheduler } from './services/sync-scheduler.js';
@@ -56,7 +52,7 @@ export function buildApp(options: BuildAppOptions = {}) {
       syncQueue,
       syncRunRepository,
       syncJobRepository,
-      options.syncExecutor ?? new PlaceholderSyncExecutor(),
+      options.syncExecutor ?? new SourceToSheetSyncExecutor(db, app.log),
       workerConfig.concurrency,
       workerConfig.pollTimeoutSeconds
     );
