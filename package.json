@@ -1,0 +1,20 @@
+{
+  "name": "google-sheets-sync",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Google Sheets Sync-as-a-Service monorepo",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @gssync/api",
+    "dev": "npm run dev -w @gssync/api",
+    "start": "npm run start -w @gssync/api",
+    "test": "npm run test -w @gssync/api",
+    "typecheck": "npm run typecheck -w @gssync/api"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}
