@@ -70,32 +70,60 @@ export class SyncWorkerPool {
           continue;
         }
 
-        const execution = await this.syncExecutor.execute({
-          runId: message.runId,
-          jobId: message.jobId,
-          userId: message.userId
-        });
+        try {
+          const execution = await this.syncExecutor.execute({
+            runId: message.runId,
+            jobId: message.jobId,
+            userId: message.userId
+          });
 
-        this.syncRunRepository.complete({
-          id: message.runId,
-          userId: message.userId,
-          status: execution.recordsFailed > 0 ? 'failed' : 'succeeded',
-          finishedAt: new Date().toISOString(),
-          recordsProcessed: execution.recordsProcessed,
-          recordsSucceeded: execution.recordsSucceeded,
-          recordsFailed: execution.recordsFailed,
-          resultJson: execution.resultJson ?? null,
-          errorMessage: execution.recordsFailed > 0 ? 'Sync execution failed' : null,
-          errorDetailsJson: null
-        });
+          this.syncRunRepository.complete({
+            id: message.runId,
+            userId: message.userId,
+            status: execution.recordsFailed > 0 ? 'failed' : 'succeeded',
+            finishedAt: new Date().toISOString(),
+            recordsProcessed: execution.recordsProcessed,
+            recordsSucceeded: execution.recordsSucceeded,
+            recordsFailed: execution.recordsFailed,
+            resultJson: execution.resultJson ?? null,
+            errorMessage: execution.recordsFailed > 0 ? 'Sync execution failed' : null,
+            errorDetailsJson: null
+          });
 
-        this.syncJobRepository.updateLastRun({
-          id: message.jobId,
-          userId: message.userId,
-          lastRunStatus: execution.recordsFailed > 0 ? 'failed' : 'succeeded',
-          lastRunAt: new Date().toISOString(),
-          lastErrorMessage: execution.recordsFailed > 0 ? 'Sync execution failed' : null
-        });
+          this.syncJobRepository.updateLastRun({
+            id: message.jobId,
+            userId: message.userId,
+            lastRunStatus: execution.recordsFailed > 0 ? 'failed' : 'succeeded',
+            lastRunAt: new Date().toISOString(),
+            lastErrorMessage: execution.recordsFailed > 0 ? 'Sync execution failed' : null
+          });
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Sync execution failed';
+          const finishedAt = new Date().toISOString();
+
+          this.syncRunRepository.complete({
+            id: message.runId,
+            userId: message.userId,
+            status: 'failed',
+            finishedAt,
+            recordsProcessed: 0,
+            recordsSucceeded: 0,
+            recordsFailed: 0,
+            resultJson: null,
+            errorMessage,
+            errorDetailsJson: null
+          });
+
+          this.syncJobRepository.updateLastRun({
+            id: message.jobId,
+            userId: message.userId,
+            lastRunStatus: 'failed',
+            lastRunAt: finishedAt,
+            lastErrorMessage: errorMessage
+          });
+
+          this.logger.error({ workerId, runId: message.runId, error }, 'sync run execution failed');
+        }
       } catch (error) {
         this.logger.error({ workerId, error }, 'sync worker iteration failed');
       }

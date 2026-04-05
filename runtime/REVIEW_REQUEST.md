@@ -1,26 +1,22 @@
-# Review Request — Task 6: Job Queue & Worker Setup
+# Review Request — Task 7: Core Sync Logic - source_to_sheet (SQLite-adapted)
 
 ## What was built
-Implemented Redis-backed sync run queueing using Upstash Redis REST and added a scalable in-process worker pool for background execution. Added authenticated API trigger endpoint to enqueue runs and persist lifecycle transitions in SQLite. Added tests covering queueing behavior and worker processing.
+Implemented the core sync executor for `source_to_sheet` and wired it into the Task 6 worker scaffold. The worker now executes real sync runs by reading from a SQLite source and writing rows to Google Sheets using stored encrypted OAuth tokens.
 
 ## PR
-Pending (to be created after push)
+Pending (subagent flow commits/pushes branch directly)
 
 ## Files changed
-- `.env.example`: added queue/worker env vars.
-- `README.md`: documented Task 6 queue + worker behavior and endpoint.
-- `apps/api/src/config/env.ts`: added queue key, worker concurrency, and poll timeout config.
-- `apps/api/src/services/upstash-redis-client.ts`: added `LPUSH`/`BRPOP` command support.
-- `apps/api/src/services/sync-queue.ts`: new queue abstraction + Upstash implementation.
-- `apps/api/src/services/sync-run-service.ts`: new service to validate/enqueue manual runs.
-- `apps/api/src/services/sync-worker-pool.ts`: new scalable worker pool + placeholder executor.
-- `apps/api/src/app.ts`: wired queue creation, Fastify decoration, worker pool startup/shutdown hooks.
-- `apps/api/src/types.ts`: added `syncQueue` Fastify instance typing.
-- `apps/api/src/routes/sync-jobs.ts`: added `POST /sync-jobs/:id/run` endpoint.
-- `apps/api/src/db/sync-run-repository.ts`: added queue message ID update and safe claim semantics.
-- `apps/api/src/db/sync-job-repository.ts`: restored/generalized update + delete methods used by service layer.
-- `apps/api/test/sync-jobs-api.test.ts`: added queue-run endpoint test coverage.
-- `apps/api/test/sync-worker-pool.test.ts`: added worker processing integration test.
+- `apps/api/src/services/source-to-sheet-sync-executor.ts`: New core executor implementation
+  - Loads sync job + Google token for user
+  - Decrypts access token
+  - Reads source rows from SQLite (`source.table` or fallback to `sourceSpreadsheetId`)
+  - Applies `fieldMapping`
+  - Clears/replaces or appends to Google Sheet via Sheets API
+  - Returns run metrics/result payload
+- `apps/api/src/app.ts`: Replaced placeholder executor wiring with `SourceToSheetSyncExecutor`
+- `apps/api/src/services/sync-worker-pool.ts`: Hardened run lifecycle so executor exceptions mark run/job as failed (instead of leaving runs in `running`)
+- `apps/api/test/sync-source-to-sheet-executor.test.ts`: New test validating SQLite source extraction + Google Sheets write request payload
 
 ## Security checklist
 - [x] No hardcoded secrets
@@ -32,22 +28,22 @@ Pending (to be created after push)
 - [x] Dependency audit: PASSED
 
 ## Tests
-- Unit: `apps/api/test/sync-worker-pool.test.ts`
-- Integration: `apps/api/test/sync-jobs-api.test.ts`
-- Type check: PASSED (`npm run typecheck`)
-- Test suite: PASSED (`npm run test`)
+- Unit: `apps/api/test/sync-source-to-sheet-executor.test.ts`
+- Integration: existing sync worker/API tests unchanged and passing
+- Type check: PASSED
+- Test suite: PASSED
 
 ## Migration notes
-- DB changes: None (uses existing sync_runs/sync_jobs schema)
-- Breaking API changes: None (additive endpoint only)
+- DB changes: None
+- Breaking API changes: None
 
 ## Rollback
-- How to undo: revert this task commit, redeploy API process.
+- How to undo: revert commit for Task 7 branch or reset to previous commit
 - Data loss: NO
 
 ## Self-assessed risks
-- Worker currently uses a placeholder sync executor scaffold; actual Google Sheets read/write execution logic remains for the next task.
-- In-process workers scale per API instance; if multiple instances run, ensure idempotent execution expectations are maintained (claiming guard added via queued→running transition).
+- Access token refresh flow is not yet implemented in executor (depends on future refresh-token handling path).
+- Current source implementation supports SQLite (as required by architecture) and explicitly rejects non-SQLite source types.
 
 ## Task spec reference
-Start Task 6: Job Queue & Worker Setup. Implement Redis-backed job queue integration with Upstash Redis REST API and a scalable pool of background workers to execute sync jobs. Adapt to updated architecture with SQLite backend, Hetzner deployment, and Caddy HTTPS.
+Start Task 7: Core Sync Logic - source_to_sheet for Postgres (adapt for SQLite). Implement core sync logic to synchronize data from source databases to Google Sheets, replacing Task 6 placeholder executor and maintaining compatibility with Hetzner + SQLite + Upstash Redis REST + Caddy HTTPS architecture.
