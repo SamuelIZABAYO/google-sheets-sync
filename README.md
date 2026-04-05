@@ -17,14 +17,14 @@ Monorepo scaffold for the Google Sheets Sync service.
 ```text
 .
 ├── apps/
-│   └── api/
+│   ├── api/
+│   │   ├── src/
+│   │   ├── test/
+│   │   └── Dockerfile
+│   └── web/
 │       ├── src/
-│       │   ├── config/
-│       │   ├── db/
-│       │   ├── routes/
-│       │   └── index.ts
-│       ├── test/
-│       └── Dockerfile
+│       ├── Dockerfile
+│       └── nginx.conf
 ├── Caddyfile
 ├── docker-compose.yml
 ├── package.json
@@ -41,6 +41,7 @@ cp .env.example .env
 
 Required vars:
 
+- `VITE_API_BASE_URL` (optional; empty uses same-origin routes behind Caddy)
 - `HOST` (default `0.0.0.0`)
 - `PORT` (default `3001`)
 - `APP_DOMAIN` (default `app.automationglass.com`)
@@ -59,7 +60,8 @@ Required vars:
 
 ```bash
 npm install
-npm run dev
+npm run dev      # API
+npm run dev:web  # Frontend (Vite)
 ```
 
 Health check:
@@ -101,10 +103,11 @@ Caddy will automatically provision HTTPS certificates for `APP_DOMAIN` when DNS 
 From repo root:
 
 - `npm run dev` — run API in watch mode
-- `npm run build` — build API
+- `npm run dev:web` — run Vite frontend
+- `npm run build` — build API + frontend
 - `npm run start` — start built API
-- `npm run typecheck` — strict TS check
-- `npm run test` — run tests
+- `npm run typecheck` — strict TS check (API + frontend)
+- `npm run test` — run tests (API + frontend)
 
 
 ## Google OAuth2 endpoints (Task 3)
@@ -133,6 +136,14 @@ Token storage details:
 - Sync run messages are pushed to an Upstash Redis list via REST (`LPUSH`/`BRPOP`).
 - API process starts a background worker pool (`SYNC_WORKER_CONCURRENCY`) that long-polls queue and executes runs.
 - Run lifecycle updates are persisted in SQLite (`sync_runs` + `sync_jobs.last_run_*`).
+
+## Frontend dashboard shell + JWT auth (Task 9)
+
+- React + Vite frontend lives in `apps/web`.
+- Login form uses backend `POST /auth/login` and stores JWT access token in localStorage.
+- On app load, frontend validates token with `GET /auth/me`.
+- Protected dashboard route redirects unauthenticated users to `/login`.
+- Caddy routes API paths (`/auth*`, `/sync-jobs*`, `/health*`, `/webhooks*`) to the API container and all other paths to the frontend container.
 
 ## Cron scheduler process (Task 8)
 

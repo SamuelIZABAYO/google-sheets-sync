@@ -11,6 +11,16 @@ services:
     expose:
       - "3001"
 
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    expose:
+      - "80"
+    depends_on:
+      - api
+
   caddy:
     image: caddy:2.8-alpine
     restart: unless-stopped
@@ -25,6 +35,7 @@ services:
       - caddy_config:/config
     depends_on:
       - api
+      - web
 
 volumes:
   sqlite_data:
