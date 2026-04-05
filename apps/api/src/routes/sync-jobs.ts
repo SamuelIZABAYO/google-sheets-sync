@@ -2,7 +2,14 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { requireAuth } from '../auth/require-auth.js';
 import { SyncJobRepository } from '../db/sync-job-repository.js';
+import { SyncRunRepository } from '../db/sync-run-repository.js';
 import { SyncJobNotFoundError, SyncJobService } from '../services/sync-job-service.js';
+import {
+  QueueUnavailableError,
+  SyncJobInactiveError,
+  SyncJobNotFoundError as SyncRunJobNotFoundError,
+  SyncRunService
+} from '../services/sync-run-service.js';
 
 const createSyncJobSchema = z.object({
   name: z.string().min(1).max(200),
@@ -40,7 +47,9 @@ const idParamSchema = z.object({
 });
 
 export async function syncJobRoutes(app: FastifyInstance) {
-  const syncJobService = new SyncJobService(new SyncJobRepository(app.sqlite));
+  const syncJobRepository = new SyncJobRepository(app.sqlite);
+  const syncJobService = new SyncJobService(syncJobRepository);
+  const syncRunService = new SyncRunService(syncJobRepository, new SyncRunRepository(app.sqlite), app.syncQueue);
 
   app.get('/sync-jobs', { preHandler: requireAuth }, async (request, reply) => {
     const user = request.authUser;
@@ -141,6 +150,52 @@ export async function syncJobRoutes(app: FastifyInstance) {
       }
 
       request.log.error(error, 'update sync job failed');
+      return reply.code(500).send({
+        error: 'Internal server error'
+      });
+    }
+  });
+
+  app.post('/sync-jobs/:id/run', { preHandler: requireAuth }, async (request, reply) => {
+    const user = request.authUser;
+
+    if (!user) {
+      return reply.code(401).send({
+        error: 'Invalid token'
+      });
+    }
+
+    const parsedParams = idParamSchema.safeParse(request.params);
+
+    if (!parsedParams.success) {
+      return reply.code(400).send({
+        error: 'Invalid request params'
+      });
+    }
+
+    try {
+      const run = await syncRunService.enqueueRun(parsedParams.data.id, user.id, 'manual');
+      return reply.code(202).send({ run });
+    } catch (error) {
+      if (error instanceof SyncRunJobNotFoundError) {
+        return reply.code(404).send({
+          error: 'Sync job not found'
+        });
+      }
+
+      if (error instanceof SyncJobInactiveError) {
+        return reply.code(400).send({
+          error: 'Sync job is not active'
+        });
+      }
+
+      if (error instanceof QueueUnavailableError) {
+        return reply.code(503).send({
+          error: 'Sync queue unavailable'
+        });
+      }
+
+      request.log.error(error, 'enqueue sync run failed');
       return reply.code(500).send({
         error: 'Internal server error'
       });

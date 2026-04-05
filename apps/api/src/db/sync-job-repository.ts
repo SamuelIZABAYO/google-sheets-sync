@@ -7,6 +7,22 @@ import type {
   UpdateSyncJobStatusInput
 } from '../models/sync-job.js';
 
+export type UpdateSyncJobRepositoryInput = {
+  id: number;
+  userId: number;
+  name?: string;
+  status?: SyncJobStatus;
+  sourceSpreadsheetId?: string;
+  sourceSheetName?: string | null;
+  destinationType?: string;
+  destinationConfigJson?: string;
+  fieldMappingJson?: string;
+  triggerType?: SyncJob['triggerType'];
+  triggerConfigJson?: string | null;
+  cronExpression?: string | null;
+  queueTopic?: string;
+};
+
 type SyncJobRow = {
   id: number;
   user_id: number;
@@ -111,6 +127,88 @@ export class SyncJobRepository {
       .all(userId) as SyncJobRow[];
 
     return rows.map(mapRow);
+  }
+
+  update(input: UpdateSyncJobRepositoryInput): SyncJob | null {
+    const updates: string[] = [];
+    const values: unknown[] = [];
+
+    if (input.name !== undefined) {
+      updates.push('name = ?');
+      values.push(input.name);
+    }
+
+    if (input.status !== undefined) {
+      updates.push('status = ?');
+      values.push(input.status);
+    }
+
+    if (input.sourceSpreadsheetId !== undefined) {
+      updates.push('source_spreadsheet_id = ?');
+      values.push(input.sourceSpreadsheetId);
+    }
+
+    if (input.sourceSheetName !== undefined) {
+      updates.push('source_sheet_name = ?');
+      values.push(input.sourceSheetName);
+    }
+
+    if (input.destinationType !== undefined) {
+      updates.push('destination_type = ?');
+      values.push(input.destinationType);
+    }
+
+    if (input.destinationConfigJson !== undefined) {
+      updates.push('destination_config_json = ?');
+      values.push(input.destinationConfigJson);
+    }
+
+    if (input.fieldMappingJson !== undefined) {
+      updates.push('field_mapping_json = ?');
+      values.push(input.fieldMappingJson);
+    }
+
+    if (input.triggerType !== undefined) {
+      updates.push('trigger_type = ?');
+      values.push(input.triggerType);
+    }
+
+    if (input.triggerConfigJson !== undefined) {
+      updates.push('trigger_config_json = ?');
+      values.push(input.triggerConfigJson);
+    }
+
+    if (input.cronExpression !== undefined) {
+      updates.push('cron_expression = ?');
+      values.push(input.cronExpression);
+    }
+
+    if (input.queueTopic !== undefined) {
+      updates.push('queue_topic = ?');
+      values.push(input.queueTopic);
+    }
+
+    if (updates.length === 0) {
+      return this.findByIdForUser(input.id, input.userId);
+    }
+
+    values.push(input.id, input.userId);
+
+    const result = this.db
+      .prepare(`UPDATE sync_jobs SET ${updates.join(', ')} WHERE id = ? AND user_id = ?`)
+      .run(...values);
+
+    if (result.changes === 0) {
+      return null;
+    }
+
+    return this.findByIdForUser(input.id, input.userId);
+  }
+
+  delete(id: number, userId: number): boolean {
+    const result = this.db.prepare('DELETE FROM sync_jobs WHERE id = ? AND user_id = ?').run(id, userId);
+
+    return result.changes > 0;
   }
 
   updateStatus(input: UpdateSyncJobStatusInput): boolean {
