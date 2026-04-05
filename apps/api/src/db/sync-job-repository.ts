@@ -7,6 +7,22 @@ import type {
   UpdateSyncJobStatusInput
 } from '../models/sync-job.js';
 
+type UpdateSyncJobInput = {
+  id: number;
+  userId: number;
+  name?: string;
+  status?: SyncJobStatus;
+  sourceSpreadsheetId?: string;
+  sourceSheetName?: string | null;
+  destinationType?: string;
+  destinationConfigJson?: string;
+  fieldMappingJson?: string;
+  triggerType?: SyncJob['triggerType'];
+  triggerConfigJson?: string | null;
+  cronExpression?: string | null;
+  queueTopic?: string;
+};
+
 type SyncJobRow = {
   id: number;
   user_id: number;
@@ -130,6 +146,49 @@ export class SyncJobRepository {
       )
       .run(input.lastRunStatus, input.lastRunAt, input.lastErrorMessage ?? null, input.id, input.userId);
 
+    return result.changes > 0;
+  }
+
+  update(input: UpdateSyncJobInput): SyncJob | null {
+    const existing = this.findByIdForUser(input.id, input.userId);
+
+    if (!existing) {
+      return null;
+    }
+
+    const result = this.db
+      .prepare(
+        `UPDATE sync_jobs
+         SET name = ?, status = ?, source_spreadsheet_id = ?, source_sheet_name = ?,
+             destination_type = ?, destination_config_json = ?, field_mapping_json = ?,
+             trigger_type = ?, trigger_config_json = ?, cron_expression = ?, queue_topic = ?
+         WHERE id = ? AND user_id = ?`
+      )
+      .run(
+        input.name ?? existing.name,
+        input.status ?? existing.status,
+        input.sourceSpreadsheetId ?? existing.sourceSpreadsheetId,
+        input.sourceSheetName === undefined ? existing.sourceSheetName : input.sourceSheetName,
+        input.destinationType ?? existing.destinationType,
+        input.destinationConfigJson ?? existing.destinationConfigJson,
+        input.fieldMappingJson ?? existing.fieldMappingJson,
+        input.triggerType ?? existing.triggerType,
+        input.triggerConfigJson === undefined ? existing.triggerConfigJson : input.triggerConfigJson,
+        input.cronExpression === undefined ? existing.cronExpression : input.cronExpression,
+        input.queueTopic ?? existing.queueTopic,
+        input.id,
+        input.userId
+      );
+
+    if (result.changes < 1) {
+      return null;
+    }
+
+    return this.findByIdForUser(input.id, input.userId);
+  }
+
+  delete(id: number, userId: number): boolean {
+    const result = this.db.prepare('DELETE FROM sync_jobs WHERE id = ? AND user_id = ?').run(id, userId);
     return result.changes > 0;
   }
 }

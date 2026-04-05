@@ -1,18 +1,19 @@
-# Review Request — Task 4: Sync Job & Run Models (DB Schema)
+# Review Request — Task 5: CRUD API for Sync Jobs
 
 ## What was built
-Implemented SQLite schema upgrades for `sync_jobs` and new `sync_runs` with trigger/status/result history fields, ownership scoping, and indexes. Added strongly-typed sync job/run models and repositories with user-scoped access methods to prevent cross-user data access. Added integration tests validating schema, CRUD flow, run lifecycle, and security boundaries.
+Implemented authenticated, user-scoped CRUD REST endpoints for sync jobs (`GET /sync-jobs`, `POST /sync-jobs`, `PATCH /sync-jobs/:id`, `DELETE /sync-jobs/:id`) with strict request validation, service-layer business logic, and SQLite-backed repository updates.
 
 ## PR
-Pending push/PR creation by main agent.
+Pending push/PR creation.
 
 ## Files changed
-- `apps/api/src/db/sqlite.ts`: expanded sync schema, migration guards for legacy DBs, run table + triggers + indexes
-- `apps/api/src/models/sync-job.ts`: sync job types and status/trigger enums
-- `apps/api/src/models/sync-run.ts`: sync run types and lifecycle input models
-- `apps/api/src/db/sync-job-repository.ts`: user-scoped sync job data access methods
-- `apps/api/src/db/sync-run-repository.ts`: user-scoped sync run history lifecycle methods
-- `apps/api/test/sync-models.test.ts`: integration tests for schema + repositories + cross-user isolation
+- `apps/api/src/auth/require-auth.ts`: Added reusable Bearer token auth pre-handler.
+- `apps/api/src/types.ts`: Extended Fastify request typing with `authUser`.
+- `apps/api/src/services/sync-job-service.ts`: Added sync job business logic + not-found domain error.
+- `apps/api/src/db/sync-job-repository.ts`: Added update/delete data access methods with user scoping.
+- `apps/api/src/routes/sync-jobs.ts`: Added authenticated CRUD endpoints with Zod validation and error mapping.
+- `apps/api/src/app.ts`: Registered sync job routes.
+- `apps/api/test/sync-jobs-api.test.ts`: Added integration tests for happy path, invalid input, and missing auth.
 
 ## Security checklist
 - [x] No hardcoded secrets
@@ -24,25 +25,29 @@ Pending push/PR creation by main agent.
 - [x] Dependency audit: PASSED
 
 ## Tests
-- Unit: None — repository/model work validated with integration-level DB tests
-- Integration: `apps/api/test/sync-models.test.ts`
+- Unit: None — repository/service behavior covered in integration-style route tests and existing repository tests
+- Integration:
+  - `apps/api/test/sync-jobs-api.test.ts`
+  - `apps/api/test/sync-models.test.ts` (existing)
 - Manual steps:
-  1. `npm run typecheck` → passes
-  2. `npm run test` → all tests pass
-  3. `npm audit --audit-level=high` → no vulnerabilities
+  1. Register/login and capture bearer token.
+  2. `POST /sync-jobs` with valid body → `201` + created job.
+  3. `GET /sync-jobs` → only caller’s jobs.
+  4. `PATCH /sync-jobs/:id` as owner → `200`; as another user → `404`.
+  5. `DELETE /sync-jobs/:id` as owner → `204`; as another user → `404`.
 - Type check: PASSED
 - Test suite: PASSED
 
 ## Migration notes
-- DB changes: `sync_jobs` expanded with ownership/config/trigger/run summary columns; `sync_runs` table added for run history
-- Breaking API changes: None (no existing sync API handlers yet)
+- DB changes: None
+- Breaking API changes: None
 
 ## Rollback
-- How to undo: revert this commit and redeploy previous image
-- Data loss: NO (adds columns/tables only)
+- How to undo: Revert commit for Task 5 branch and redeploy previous image.
+- Data loss: NO
 
 ## Self-assessed risks
-- Legacy databases with `sync_jobs` rows created before `user_id` existed may need backfill strategy before enforcing NOT NULL at app/API layer.
+- API currently returns JSON configuration fields as serialized JSON strings from DB model; consumer parsing is required client-side.
 
 ## Task spec reference
-Task 4: Sync Job & Run Models (DB Schema) — implement SQLite schema and models for sync jobs/runs including config, triggers, status, run results/history, compatibility with existing user/auth, and secure data access aligned to Hetzner + SQLite + Upstash Redis REST + Caddy architecture.
+Start Task 5: CRUD API for Sync Jobs. Implement authenticated and user-scoped REST endpoints (GET, POST, PATCH, DELETE) for managing sync jobs with SQLite backend and architecture compliance.
