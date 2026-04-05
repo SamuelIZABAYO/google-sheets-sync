@@ -1,28 +1,18 @@
-# Review Request — Task 3: Google OAuth2 Integration (Endpoints, Token Encryption)
+# Review Request — Task 4: Sync Job & Run Models (DB Schema)
 
 ## What was built
-Implemented Google OAuth2 login flow with secure state handling and callback exchange endpoints. Added encrypted token-at-rest storage for Google access/refresh tokens, with SQLite persistence and optional Upstash Redis REST support for OAuth state TTL storage. Updated user model/repository to support Google-linked users and preserved existing local email/password auth.
+Implemented SQLite schema upgrades for `sync_jobs` and new `sync_runs` with trigger/status/result history fields, ownership scoping, and indexes. Added strongly-typed sync job/run models and repositories with user-scoped access methods to prevent cross-user data access. Added integration tests validating schema, CRUD flow, run lifecycle, and security boundaries.
 
 ## PR
-Pending push
+Pending push/PR creation by main agent.
 
 ## Files changed
-- `apps/api/src/config/env.ts`: Added required Google OAuth and token encryption env vars; redirect URI helper for HTTPS + Caddy deployments.
-- `apps/api/src/routes/auth.ts`: Added `/auth/google/start` and `/auth/google/callback` endpoints; integrated OAuth state validation and encrypted token persistence.
-- `apps/api/src/services/google-oauth-service.ts`: Added Google auth URL generation, token exchange, and userinfo fetch logic.
-- `apps/api/src/services/token-crypto.ts`: Added AES-256-GCM encryption/decryption utility for token storage.
-- `apps/api/src/services/upstash-redis-client.ts`: Added Upstash Redis REST client (SETEX/GET/DEL).
-- `apps/api/src/services/oauth-state-store.ts`: Added OAuth state abstraction with Upstash-first, SQLite fallback behavior.
-- `apps/api/src/db/sqlite.ts`: Extended schema for OAuth state and Google token tables; user table support for provider/google sub.
-- `apps/api/src/db/user-repository.ts`: Added local/google user creation and google account linking methods.
-- `apps/api/src/db/oauth-state-repository.ts`: Added SQLite-backed OAuth state CRUD.
-- `apps/api/src/db/google-token-repository.ts`: Added encrypted Google token upsert/read access.
-- `apps/api/src/models/user.ts`: Added `authProvider` and `googleSub` support in user domain model.
-- `apps/api/src/services/auth-service.ts`: Updated local auth logic for mixed provider support.
-- `apps/api/test/auth.test.ts`: Added Google OAuth start and callback invalid-state coverage; updated schema/required env.
-- `apps/api/test/token-crypto.test.ts`: Added unit test for encryption/decryption roundtrip.
-- `.env.example`: Added Google OAuth and token encryption variables.
-- `README.md`: Documented new OAuth endpoints, encryption behavior, and Caddy HTTPS callback default.
+- `apps/api/src/db/sqlite.ts`: expanded sync schema, migration guards for legacy DBs, run table + triggers + indexes
+- `apps/api/src/models/sync-job.ts`: sync job types and status/trigger enums
+- `apps/api/src/models/sync-run.ts`: sync run types and lifecycle input models
+- `apps/api/src/db/sync-job-repository.ts`: user-scoped sync job data access methods
+- `apps/api/src/db/sync-run-repository.ts`: user-scoped sync run history lifecycle methods
+- `apps/api/test/sync-models.test.ts`: integration tests for schema + repositories + cross-user isolation
 
 ## Security checklist
 - [x] No hardcoded secrets
@@ -34,27 +24,25 @@ Pending push
 - [x] Dependency audit: PASSED
 
 ## Tests
-- Unit: `apps/api/test/token-crypto.test.ts`
-- Integration: `apps/api/test/auth.test.ts`, `apps/api/test/health.test.ts`
+- Unit: None — repository/model work validated with integration-level DB tests
+- Integration: `apps/api/test/sync-models.test.ts`
 - Manual steps:
-  1. Set `.env` with Google OAuth credentials and `TOKEN_ENCRYPTION_KEY`.
-  2. Call `GET /auth/google/start` and open `authorizationUrl`.
-  3. Complete Google consent and verify callback returns app JWT + user profile.
-  4. Verify encrypted token rows in `google_oauth_tokens` (not plaintext).
+  1. `npm run typecheck` → passes
+  2. `npm run test` → all tests pass
+  3. `npm audit --audit-level=high` → no vulnerabilities
 - Type check: PASSED
 - Test suite: PASSED
 
 ## Migration notes
-- DB changes: Added `oauth_states` and `google_oauth_tokens`; extended `users` with `auth_provider` and `google_sub`.
-- Breaking API changes: None
+- DB changes: `sync_jobs` expanded with ownership/config/trigger/run summary columns; `sync_runs` table added for run history
+- Breaking API changes: None (no existing sync API handlers yet)
 
 ## Rollback
-- How to undo: Revert this branch commit(s) and redeploy previous image.
-- Data loss: NO
+- How to undo: revert this commit and redeploy previous image
+- Data loss: NO (adds columns/tables only)
 
 ## Self-assessed risks
-- Google callback happy-path exchange is not yet fully integration-tested against live Google credentials in CI.
-- Existing deployments with older SQLite schemas should be validated once with real persisted DB files to confirm ALTER behavior in all environments.
+- Legacy databases with `sync_jobs` rows created before `user_id` existed may need backfill strategy before enforcing NOT NULL at app/API layer.
 
 ## Task spec reference
-Begin work on Task 3: Google OAuth2 Integration (Endpoints, Token Encryption) for Google Sheets Sync-as-a-Service. Implement OAuth2 authentication flow with Google APIs, including token management and secure storage of refresh/access tokens with encryption. Adapt integration to SQLite backend, Upstash Redis REST API support, deployment on Hetzner, and HTTPS with Caddy.
+Task 4: Sync Job & Run Models (DB Schema) — implement SQLite schema and models for sync jobs/runs including config, triggers, status, run results/history, compatibility with existing user/auth, and secure data access aligned to Hetzner + SQLite + Upstash Redis REST + Caddy architecture.
