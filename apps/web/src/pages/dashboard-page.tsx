@@ -75,6 +75,7 @@ export function DashboardPage() {
   const [jobs, setJobs] = useState<SyncJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const [mode, setMode] = useState<'create' | 'edit'>('create');
   const [editingJobId, setEditingJobId] = useState<number | null>(null);
@@ -131,6 +132,7 @@ export function DashboardPage() {
     setEditingJobId(null);
     setFormState(defaultFormState);
     setError(null);
+    setFormError(null);
   }
 
   function startEdit(job: SyncJob) {
@@ -138,10 +140,21 @@ export function DashboardPage() {
     setEditingJobId(job.id);
     setFormState(mapJobToFormState(job));
     setError(null);
+    setFormError(null);
   }
 
   function updateField<K extends keyof JobFormState>(key: K, value: JobFormState[K]) {
     setFormState((previous) => ({ ...previous, [key]: value }));
+  }
+
+  function prettyJsonField(field: 'destinationConfigJson' | 'fieldMappingJson' | 'triggerConfigJson') {
+    try {
+      const parsed = JSON.parse(formState[field]) as unknown;
+      updateField(field, `${JSON.stringify(parsed, null, 2)}\n`);
+      setFormError(null);
+    } catch {
+      setFormError(`Cannot format ${field}: invalid JSON`);
+    }
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -152,6 +165,7 @@ export function DashboardPage() {
 
     setSubmitting(true);
     setError(null);
+    setFormError(null);
 
     try {
       const destinationConfig = parseJsonObject(formState.destinationConfigJson, 'Destination config');
@@ -193,14 +207,14 @@ export function DashboardPage() {
       }
     } catch (submitError) {
       if (submitError instanceof ApiError) {
-        setError(submitError.message);
+        setFormError(submitError.message);
         if (submitError.status === 401) {
           logout();
         }
       } else if (submitError instanceof Error) {
-        setError(submitError.message);
+        setFormError(submitError.message);
       } else {
-        setError('Failed to save sync job');
+        setFormError('Failed to save sync job');
       }
     } finally {
       setSubmitting(false);
@@ -300,6 +314,8 @@ export function DashboardPage() {
             ) : null}
           </div>
 
+          {formError ? <p role="alert" style={{ color: '#b00020', marginTop: 0 }}>{formError}</p> : null}
+
           <form onSubmit={onSubmit} style={{ display: 'grid', gap: '0.6rem' }}>
             <label>
               Name
@@ -325,10 +341,16 @@ export function DashboardPage() {
             <label>
               Destination Config (JSON)
               <textarea value={formState.destinationConfigJson} onChange={(event) => updateField('destinationConfigJson', event.currentTarget.value)} rows={4} style={{ width: '100%' }} />
+              <button type="button" onClick={() => prettyJsonField('destinationConfigJson')} style={{ marginTop: '0.3rem' }}>
+                Format JSON
+              </button>
             </label>
             <label>
               Field Mapping (JSON)
               <textarea value={formState.fieldMappingJson} onChange={(event) => updateField('fieldMappingJson', event.currentTarget.value)} rows={4} style={{ width: '100%' }} />
+              <button type="button" onClick={() => prettyJsonField('fieldMappingJson')} style={{ marginTop: '0.3rem' }}>
+                Format JSON
+              </button>
             </label>
             <label>
               Trigger Type
@@ -341,6 +363,9 @@ export function DashboardPage() {
             <label>
               Trigger Config (JSON)
               <textarea value={formState.triggerConfigJson} onChange={(event) => updateField('triggerConfigJson', event.currentTarget.value)} rows={3} style={{ width: '100%' }} />
+              <button type="button" onClick={() => prettyJsonField('triggerConfigJson')} style={{ marginTop: '0.3rem' }}>
+                Format JSON
+              </button>
             </label>
             <label>
               Cron Expression (optional)

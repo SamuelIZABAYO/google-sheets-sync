@@ -67,6 +67,27 @@ export class GoogleOAuthService {
     return (await response.json()) as GoogleTokenResponse;
   }
 
+  async refreshAccessToken(refreshToken: string): Promise<GoogleTokenResponse> {
+    const body = new URLSearchParams({
+      refresh_token: refreshToken,
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      grant_type: 'refresh_token'
+    });
+
+    const response = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body
+    });
+
+    if (!response.ok) {
+      throw new Error(`Google token refresh failed with status ${response.status}`);
+    }
+
+    return (await response.json()) as GoogleTokenResponse;
+  }
+
   async fetchUserInfo(accessToken: string): Promise<GoogleUserInfo> {
     const response = await fetch(GOOGLE_USERINFO_URL, {
       headers: {
