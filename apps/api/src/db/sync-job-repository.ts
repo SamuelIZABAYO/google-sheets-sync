@@ -129,6 +129,21 @@ export class SyncJobRepository {
     return rows.map(mapRow);
   }
 
+  listActiveScheduled(): SyncJob[] {
+    const rows = this.db
+      .prepare(
+        `SELECT id, user_id, name, status, source_spreadsheet_id, source_sheet_name, destination_type, destination_config_json,
+                field_mapping_json, trigger_type, trigger_config_json, cron_expression, queue_topic, last_run_status,
+                last_run_at, last_error_message, created_at, updated_at
+         FROM sync_jobs
+         WHERE status = 'active' AND trigger_type = 'schedule' AND cron_expression IS NOT NULL AND trim(cron_expression) <> ''
+         ORDER BY id ASC`
+      )
+      .all() as SyncJobRow[];
+
+    return rows.map(mapRow);
+  }
+
   update(input: UpdateSyncJobRepositoryInput): SyncJob | null {
     const updates: string[] = [];
     const values: unknown[] = [];

@@ -16,6 +16,11 @@ const envSchema = z.object({
   SYNC_QUEUE_KEY: z.string().min(1).default('sync-jobs'),
   SYNC_WORKER_CONCURRENCY: z.coerce.number().int().positive().max(32).default(2),
   SYNC_WORKER_POLL_TIMEOUT_SEC: z.coerce.number().int().min(1).max(60).default(15),
+  SYNC_SCHEDULER_ENABLED: z
+    .string()
+    .optional()
+    .transform((value) => (value ?? 'true').toLowerCase() !== 'false'),
+  SYNC_SCHEDULER_INTERVAL_SEC: z.coerce.number().int().min(5).max(300).default(30),
   GOOGLE_CLIENT_ID: z.string().min(1),
   GOOGLE_CLIENT_SECRET: z.string().min(1),
   GOOGLE_OAUTH_SCOPES: z.string().default('openid email profile https://www.googleapis.com/auth/spreadsheets.readonly'),
