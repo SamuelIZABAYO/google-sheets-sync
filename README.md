@@ -147,10 +147,11 @@ Token storage details:
 
 ## Source connector support
 
-The sync executor can now read source rows from either:
+The sync executor can now read source rows from:
 
 - **SQLite** (default): `destinationConfig.source.type = "sqlite"`
 - **PostgreSQL**: `destinationConfig.source.type = "postgres"`
+- **REST API**: `destinationConfig.source.type = "rest"`
 
 PostgreSQL source config is provided per sync job via `destinationConfig.source`:
 
@@ -164,10 +165,25 @@ PostgreSQL source config is provided per sync job via `destinationConfig.source`
 }
 ```
 
+REST source config is also provided per sync job via `destinationConfig.source`:
+
+```json
+{
+  "type": "rest",
+  "url": "https://api.example.com/orders",
+  "method": "GET",
+  "queryParams": { "status": "active", "limit": 100 },
+  "responsePath": "data.items",
+  "authTokenEnvVar": "REST_API_SOURCE_TOKEN"
+}
+```
+
 Notes:
-- Only read-only `SELECT` queries are accepted.
-- If `query` is omitted, the executor falls back to `SELECT * FROM <source.table || sourceSpreadsheetId>`.
+- For SQL sources, only read-only `SELECT` queries are accepted.
+- If SQL `query` is omitted, the executor falls back to `SELECT * FROM <source.table || sourceSpreadsheetId>`.
 - SSL is enabled by default for PostgreSQL sources; set `ssl.enabled=false` only for trusted local/private environments.
+- REST sources enforce HTTPS by default (`allowInsecureHttp=false`) and support `GET`/`POST` methods.
+- REST bearer auth can be injected via environment variable (`authTokenEnvVar`) to avoid storing API secrets in job config.
 
 ## Feature Roadmap & Prioritized Next Bets
 

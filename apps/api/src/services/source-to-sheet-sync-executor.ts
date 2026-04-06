@@ -12,7 +12,7 @@ type DestinationConfig = {
   writeMode?: 'replace' | 'append';
   includeHeaders?: boolean;
   source?: {
-    type?: 'sqlite' | 'postgres';
+    type?: 'sqlite' | 'postgres' | 'rest';
     databasePath?: string;
     connectionString?: string;
     ssl?: {
@@ -22,6 +22,16 @@ type DestinationConfig = {
     table?: string;
     query?: string;
     params?: unknown[];
+    url?: string;
+    method?: 'GET' | 'POST';
+    headers?: Record<string, string>;
+    queryParams?: Record<string, string | number | boolean>;
+    body?: unknown;
+    responsePath?: string;
+    timeoutMs?: number;
+    authTokenEnvVar?: string;
+    authHeaderName?: string;
+    allowInsecureHttp?: boolean;
   };
 };
 
@@ -87,10 +97,7 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
     const destinationConfig = this.parseDestinationConfig(job.destinationConfigJson);
     const fieldMapping = this.parseFieldMapping(job.fieldMappingJson);
 
-    const sourceRows =
-      destinationConfig.source?.type === 'postgres'
-        ? await this.readPostgresSourceRows(job.sourceSpreadsheetId, destinationConfig)
-        : this.readSourceRows(job.sourceSpreadsheetId, destinationConfig);
+    const sourceRows = await this.readRowsFromConfiguredSource(job.sourceSpreadsheetId, destinationConfig);
 
     const mappedRows = sourceRows.map((row) => this.mapRow(row, fieldMapping));
     const headerRow = Object.values(fieldMapping);
@@ -154,12 +161,16 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
       throw new Error('destinationConfig must include spreadsheetId and sheetName');
     }
 
-    if (parsed.source?.type && parsed.source.type !== 'sqlite' && parsed.source.type !== 'postgres') {
-      throw new Error('source.type must be one of "sqlite" or "postgres"');
+    if (parsed.source?.type && parsed.source.type !== 'sqlite' && parsed.source.type !== 'postgres' && parsed.source.type !== 'rest') {
+      throw new Error('source.type must be one of "sqlite", "postgres", or "rest"');
     }
 
     if (parsed.source?.type === 'postgres' && !parsed.source.connectionString) {
       throw new Error('source.connectionString is required for source.type="postgres"');
+    }
+
+    if (parsed.source?.type === 'rest' && !parsed.source.url) {
+      throw new Error('source.url is required for source.type="rest"');
     }
 
     return parsed;
@@ -177,7 +188,7 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
   }
 
   private readSourceRows(defaultTable: string, destinationConfig: DestinationConfig): JsonRow[] {
-    if (destinationConfig.source?.type === 'postgres') {
+    if (destinationConfig.source?.type === 'postgres' || destinationConfig.source?.type === 'rest') {
       throw new Error('readSourceRows is only valid for sqlite sources');
     }
 
@@ -206,6 +217,18 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
     } finally {
       db.close();
     }
+  }
+
+  private async readRowsFromConfiguredSource(defaultTable: string, destinationConfig: DestinationConfig): Promise<JsonRow[]> {
+    if (destinationConfig.source?.type === 'postgres') {
+      return this.readPostgresSourceRows(defaultTable, destinationConfig);
+    }
+
+    if (destinationConfig.source?.type === 'rest') {
+      return this.readRestSourceRows(destinationConfig);
+    }
+
+    return this.readSourceRows(defaultTable, destinationConfig);
   }
 
   private async readPostgresSourceRows(defaultTable: string, destinationConfig: DestinationConfig): Promise<JsonRow[]> {
@@ -253,6 +276,108 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
     } finally {
       await pool.end();
     }
+  }
+
+  private async readRestSourceRows(destinationConfig: DestinationConfig): Promise<JsonRow[]> {
+    const source = destinationConfig.source;
+    if (!source?.url) {
+      throw new Error('source.url is required for source.type="rest"');
+    }
+
+    const url = new URL(source.url);
+    if (!source.allowInsecureHttp && url.protocol !== 'https:') {
+      throw new Error('REST source URL must use HTTPS unless source.allowInsecureHttp=true');
+    }
+
+    if (source.queryParams) {
+      for (const [key, value] of Object.entries(source.queryParams)) {
+        url.searchParams.set(key, String(value));
+      }
+    }
+
+    const method = source.method ?? 'GET';
+    if (method !== 'GET' && method !== 'POST') {
+      throw new Error('source.method must be GET or POST');
+    }
+
+    const headers: Record<string, string> = {
+      accept: 'application/json',
+      ...(source.headers ?? {})
+    };
+
+    if (method === 'POST' && !Object.keys(headers).some((key) => key.toLowerCase() === 'content-type')) {
+      headers['content-type'] = 'application/json';
+    }
+
+    if (source.authTokenEnvVar) {
+      const token = process.env[source.authTokenEnvVar];
+      if (!token) {
+        throw new Error(`Missing REST source auth token in env var: ${source.authTokenEnvVar}`);
+      }
+
+      const authHeaderName = (source.authHeaderName ?? 'authorization').toLowerCase();
+      headers[authHeaderName] = authHeaderName === 'authorization' ? `Bearer ${token}` : token;
+    }
+
+    const timeoutMs = Math.min(Math.max(source.timeoutMs ?? 15000, 1000), 60000);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      const response = await fetch(url.toString(), {
+        method,
+        headers,
+        body: method === 'POST' ? JSON.stringify(source.body ?? {}) : undefined,
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        this.logger.error({ status: response.status, body }, 'rest source fetch failed');
+        throw new Error(`REST source request failed with status ${response.status}`);
+      }
+
+      const payload = (await response.json()) as unknown;
+      const rows = this.extractRowsFromRestPayload(payload, source.responsePath);
+
+      return rows;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        throw new Error(`REST source request timed out after ${timeoutMs}ms`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private extractRowsFromRestPayload(payload: unknown, responsePath?: string): JsonRow[] {
+    let selected: unknown = payload;
+
+    if (responsePath && responsePath.trim().length > 0) {
+      const pathParts = responsePath
+        .split('.')
+        .map((part) => part.trim())
+        .filter((part) => part.length > 0);
+
+      for (const part of pathParts) {
+        if (!selected || typeof selected !== 'object' || !(part in selected)) {
+          throw new Error(`source.responsePath "${responsePath}" did not resolve to a value`);
+        }
+        selected = (selected as Record<string, unknown>)[part];
+      }
+    }
+
+    if (!Array.isArray(selected)) {
+      throw new Error('REST source response must resolve to an array of objects');
+    }
+
+    const invalidItem = selected.find((item) => item === null || typeof item !== 'object' || Array.isArray(item));
+    if (invalidItem !== undefined) {
+      throw new Error('REST source rows must be JSON objects');
+    }
+
+    return selected as JsonRow[];
   }
 
   private mapRow(row: JsonRow, fieldMapping: Record<string, string>): Array<string | number | boolean> {
