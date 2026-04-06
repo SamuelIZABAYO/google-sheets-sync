@@ -1,19 +1,16 @@
-# Review Request — Task 9: Frontend Dashboard Shell & Authentication
+# Review Request — Task 3: Add CSV/Excel Source Support
 
 ## What was built
-Implemented a new React + Vite frontend app (`apps/web`) with a protected dashboard shell and JWT login flow wired to backend auth endpoints (`/auth/login`, `/auth/me`). Added Docker/Caddy routing so Hetzner deployment serves the SPA over HTTPS while forwarding API routes to the Fastify backend and preserving Upstash Redis-backed backend architecture.
+Added file-source support for sync jobs to import rows from CSV and Excel files, mapped through existing fieldMapping and written to Google Sheets through the existing sync executor flow. Added validation for source type/config and file readability.
 
 ## PR
-TBD (will be filled after PR creation)
+N/A (subagent branch push only)
 
 ## Files changed
-- `apps/web/*`: new frontend app (routing, auth context, login page, protected dashboard shell, tests, Vite config, Dockerfile, nginx config)
-- `package.json`: root workspace scripts updated to include frontend build/test/typecheck and `dev:web`
-- `package-lock.json`: dependency lock updates for frontend workspace
-- `.env.example`: added `VITE_API_BASE_URL`
-- `Caddyfile`: split routing (API paths to `api`, all other paths to `web`)
-- `docker-compose.yml`: added `web` service and caddy dependency wiring
-- `README.md`: documented frontend app and task 9 architecture updates
+- apps/api/src/services/source-to-sheet-sync-executor.ts: added `source.type` support for `csv`/`excel`, file validation, CSV parsing, Excel worksheet parsing, row normalization/validation.
+- apps/api/test/sync-source-to-sheet-executor.test.ts: added integration tests for CSV and Excel sources and missing-file validation.
+- apps/api/package.json: added `csv-parse` and `exceljs` dependencies.
+- package-lock.json: lockfile updates for new dependencies.
 
 ## Security checklist
 - [x] No hardcoded secrets
@@ -22,24 +19,30 @@ TBD (will be filled after PR creation)
 - [x] Input validated at boundary
 - [x] Errors don't expose internals
 - [x] Bcrypt used for any passwords
-- [x] Dependency audit: PASSED (`npm audit --audit-level=high`)
+- [x] Dependency audit: PASSED
 
 ## Tests
-- Unit: `apps/web/src/test/api.test.ts`
-- Integration: `apps/web/src/test/auth-context.test.tsx`
-- Type check: PASSED (`npm run typecheck`)
-- Test suite: PASSED (`npm run test`)
+- Unit: None — behavior covered in executor integration tests.
+- Integration: `apps/api/test/sync-source-to-sheet-executor.test.ts`
+- Manual steps:
+  1. Create a sync job with `destinationConfig.source.type = "csv"` and `filePath` to a CSV file with headers.
+  2. Run sync job and verify mapped rows are written to destination Google Sheet.
+  3. Create a sync job with `destinationConfig.source.type = "excel"`, `filePath`, and optional `worksheetName`.
+  4. Run sync job and verify mapped rows are written to destination Google Sheet.
+- Type check: PASSED
+- Test suite: PASSED
 
 ## Migration notes
 - DB changes: None
 - Breaking API changes: None
 
 ## Rollback
-- How to undo: revert merge commit for Task 9, then redeploy containers
+- How to undo: revert this branch commit.
 - Data loss: NO
 
 ## Self-assessed risks
-- Caddy API route matcher currently targets known backend paths (`/auth*`, `/sync-jobs*`, `/health*`, `/webhooks*`); if new backend route prefixes are introduced later, Caddy routes should be expanded accordingly.
+- Large local files may increase memory pressure during parse.
+- CSV parsing assumes standard delimiter/header structure.
 
 ## Task spec reference
-Start Task 9: Frontend Dashboard Shell & Authentication. Build initial React + Vite frontend shell for the web app, including login flow integrated with backend JWT authentication. Align with Hetzner + Caddy HTTPS + Upstash Redis REST-backed backend architecture.
+Start Task 3: Add CSV/Excel file import support to sync jobs so they can read and import data from CSV/Excel sources with validation, aligned to existing sync job flow.

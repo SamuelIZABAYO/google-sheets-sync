@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 const cleanupPaths: string[] = [];
 
@@ -455,13 +455,12 @@ describe('source to sheet sync executor', () => {
     const xlsxPath = path.join(os.tmpdir(), `gssync-source-${Date.now()}-${Math.random()}.xlsx`);
     cleanupPaths.push(xlsxPath);
 
-    const workbook = XLSX.utils.book_new();
-    const worksheet = XLSX.utils.json_to_sheet([
-      { id: 301, name: 'Alice', amount: 35 },
-      { id: 302, name: 'Bob', amount: 45 }
-    ]);
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Orders');
-    XLSX.writeFile(workbook, xlsxPath);
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Orders');
+    worksheet.addRow(['id', 'name', 'amount']);
+    worksheet.addRow([301, 'Alice', 35]);
+    worksheet.addRow([302, 'Bob', 45]);
+    await workbook.xlsx.writeFile(xlsxPath);
 
     const { db, userId, jobId, executor } = await setupFixture({
       destinationConfig: {

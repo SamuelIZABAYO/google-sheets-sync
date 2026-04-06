@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import type { FastifyBaseLogger } from 'fastify';
-import XLSX from 'xlsx';
+import { parse as parseCsv } from 'csv-parse/sync';
+import ExcelJS from 'exceljs';
 import { GoogleTokenRepository, type GoogleTokenRecord } from '../db/google-token-repository.js';
 import { SyncJobRepository } from '../db/sync-job-repository.js';
 import { GoogleOAuthService } from './google-oauth-service.js';
@@ -265,96 +266,93 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
     }
 
     const filePath = source.filePath;
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`CSV source file not found at path: ${filePath}`);
+    this.assertReadableFile(filePath, 'CSV');
+
+    const content = fs.readFileSync(filePath, 'utf8');
+    const hasHeaderRow = source.hasHeaderRow !== false;
+
+    const parsed = parseCsv(content, {
+      bom: true,
+      skip_empty_lines: true,
+      columns: hasHeaderRow
+    }) as unknown[];
+
+    if (!hasHeaderRow) {
+      return this.rowsFromMatrix(parsed as unknown[][]);
     }
 
-    const stats = fs.statSync(filePath);
-    if (!stats.isFile()) {
-      throw new Error(`CSV source path must point to a file: ${filePath}`);
-    }
-
-    const workbook = XLSX.readFile(filePath, {
-      raw: true,
-      dense: false
-    });
-
-    const sheetName = workbook.SheetNames[0];
-    if (!sheetName) {
-      throw new Error('CSV source file is empty');
-    }
-
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) {
-      throw new Error('CSV source file is empty');
-    }
-
-    const rows = this.sheetToObjectRows(sheet, source.hasHeaderRow !== false);
-    this.validateObjectRows(rows, 'CSV');
-    return rows;
+    this.validateObjectRows(parsed, 'CSV');
+    return parsed as JsonRow[];
   }
 
-  private readExcelSourceRows(destinationConfig: DestinationConfig): JsonRow[] {
+  private async readExcelSourceRows(destinationConfig: DestinationConfig): Promise<JsonRow[]> {
     const source = destinationConfig.source;
     if (!source?.filePath) {
       throw new Error('source.filePath is required for source.type="excel"');
     }
 
     const filePath = source.filePath;
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`Excel source file not found at path: ${filePath}`);
+    this.assertReadableFile(filePath, 'Excel');
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+
+    const worksheetName = source.worksheetName?.trim();
+    const worksheet = worksheetName ? workbook.getWorksheet(worksheetName) : workbook.worksheets[0];
+
+    if (!worksheet) {
+      throw new Error(
+        worksheetName ? `Excel source worksheet not found: ${worksheetName}` : 'Excel source workbook contains no sheets'
+      );
     }
 
-    const stats = fs.statSync(filePath);
-    if (!stats.isFile()) {
-      throw new Error(`Excel source path must point to a file: ${filePath}`);
+    const hasHeaderRow = source.hasHeaderRow !== false;
+    const rows = worksheet
+      .getSheetValues()
+      .slice(1)
+      .map((row) => (Array.isArray(row) ? row.slice(1) : []));
+
+    if (hasHeaderRow) {
+      const headerRow = rows[0] ?? [];
+      const dataRows = rows.slice(1);
+      const headers = headerRow.map((cell, index) => {
+        const normalized = String(cell ?? '').trim();
+        return normalized.length > 0 ? normalized : `column_${index + 1}`;
+      });
+
+      const objectRows = dataRows
+        .filter((row) => row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== ''))
+        .map((row) => {
+          const record: JsonRow = {};
+          headers.forEach((header, index) => {
+            record[header] = row[index] ?? null;
+          });
+          return record;
+        });
+
+      this.validateObjectRows(objectRows, 'Excel');
+      return objectRows;
     }
 
-    const workbook = XLSX.readFile(filePath, {
-      raw: true,
-      dense: false
-    });
-
-    const sheetName = source.worksheetName?.trim() || workbook.SheetNames[0];
-    if (!sheetName) {
-      throw new Error('Excel source workbook contains no sheets');
-    }
-
-    const sheet = workbook.Sheets[sheetName];
-    if (!sheet) {
-      throw new Error(`Excel source worksheet not found: ${sheetName}`);
-    }
-
-    const rows = this.sheetToObjectRows(sheet, source.hasHeaderRow !== false);
-    this.validateObjectRows(rows, 'Excel');
-    return rows;
+    return this.rowsFromMatrix(rows);
   }
 
-  private sheetToObjectRows(sheet: XLSX.WorkSheet, hasHeaderRow: boolean): JsonRow[] {
-    if (hasHeaderRow) {
-      return XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, {
-        defval: null,
-        raw: true,
-        blankrows: false
-      });
-    }
-
-    const matrixRows = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
-      header: 1,
-      defval: null,
-      raw: true,
-      blankrows: false
-    });
-
+  private rowsFromMatrix(matrixRows: unknown[][]): JsonRow[] {
     if (matrixRows.length === 0) {
       return [];
     }
 
-    const width = Math.max(...matrixRows.map((row) => row.length));
+    const dataRows = matrixRows.filter((row) => row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== ''));
+
+    if (dataRows.length === 0) {
+      return [];
+    }
+
+    const width = Math.max(...dataRows.map((row) => row.length));
     const syntheticHeaders = Array.from({ length: width }, (_, index) => `column_${index + 1}`);
 
-    return matrixRows.map((row) => {
-      const record: Record<string, unknown> = {};
+    return dataRows.map((row) => {
+      const record: JsonRow = {};
       syntheticHeaders.forEach((header, index) => {
         record[header] = row[index] ?? null;
       });
@@ -362,7 +360,18 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
     });
   }
 
-  private validateObjectRows(rows: JsonRow[], sourceLabel: 'CSV' | 'Excel'): void {
+  private assertReadableFile(filePath: string, sourceLabel: 'CSV' | 'Excel'): void {
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`${sourceLabel} source file not found at path: ${filePath}`);
+    }
+
+    const stats = fs.statSync(filePath);
+    if (!stats.isFile()) {
+      throw new Error(`${sourceLabel} source path must point to a file: ${filePath}`);
+    }
+  }
+
+  private validateObjectRows(rows: unknown[], sourceLabel: 'CSV' | 'Excel'): void {
     const invalidItem = rows.find((item) => item === null || typeof item !== 'object' || Array.isArray(item));
     if (invalidItem !== undefined) {
       throw new Error(`${sourceLabel} source rows must be objects`);
