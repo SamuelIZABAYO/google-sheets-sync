@@ -152,6 +152,8 @@ The sync executor can now read source rows from:
 - **SQLite** (default): `destinationConfig.source.type = "sqlite"`
 - **PostgreSQL**: `destinationConfig.source.type = "postgres"`
 - **REST API**: `destinationConfig.source.type = "rest"`
+- **CSV file**: `destinationConfig.source.type = "csv"`
+- **Excel file**: `destinationConfig.source.type = "excel"`
 
 PostgreSQL source config is provided per sync job via `destinationConfig.source`:
 
@@ -178,12 +180,36 @@ REST source config is also provided per sync job via `destinationConfig.source`:
 }
 ```
 
+CSV source config via `destinationConfig.source`:
+
+```json
+{
+  "type": "csv",
+  "filePath": "/absolute/path/to/orders.csv",
+  "hasHeaderRow": true
+}
+```
+
+Excel source config via `destinationConfig.source`:
+
+```json
+{
+  "type": "excel",
+  "filePath": "/absolute/path/to/orders.xlsx",
+  "worksheetName": "Orders",
+  "hasHeaderRow": true
+}
+```
+
 Notes:
 - For SQL sources, only read-only `SELECT` queries are accepted.
 - If SQL `query` is omitted, the executor falls back to `SELECT * FROM <source.table || sourceSpreadsheetId>`.
 - SSL is enabled by default for PostgreSQL sources; set `ssl.enabled=false` only for trusted local/private environments.
 - REST sources enforce HTTPS by default (`allowInsecureHttp=false`) and support `GET`/`POST` methods.
 - REST bearer auth can be injected via environment variable (`authTokenEnvVar`) to avoid storing API secrets in job config.
+- CSV and Excel sources require `source.filePath` and must point to a readable file on the API host.
+- Excel sources can target a specific worksheet with `worksheetName` (defaults to the first worksheet).
+- For file imports, `hasHeaderRow` defaults to `true`; when `false`, columns are auto-named as `column_1`, `column_2`, ... for field mapping.
 
 ## Feature Roadmap & Prioritized Next Bets
 

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import XLSX from 'xlsx';
 
 const cleanupPaths: string[] = [];
 
@@ -406,6 +407,123 @@ describe('source to sheet sync executor', () => {
     await expect(executor.execute({ jobId, userId, runId: 1 })).rejects.toThrow(
       'Missing REST source auth token in env var: REST_API_SOURCE_TOKEN'
     );
+
+    db.close();
+  });
+
+  it('reads CSV file source rows and writes them to Google Sheets', async () => {
+    const csvPath = path.join(os.tmpdir(), `gssync-source-${Date.now()}-${Math.random()}.csv`);
+    cleanupPaths.push(csvPath);
+    fs.writeFileSync(csvPath, 'id,name,amount\n201,Alice,15\n202,Bob,25\n', 'utf8');
+
+    const { db, userId, jobId, executor } = await setupFixture({
+      destinationConfig: {
+        spreadsheetId: 'spreadsheet-123',
+        sheetName: 'SyncData',
+        writeMode: 'replace',
+        source: {
+          type: 'csv',
+          filePath: csvPath
+        }
+      }
+    });
+
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => ''
+      } as unknown as Response;
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await executor.execute({ jobId, userId, runId: 1 });
+
+    const writeInit = (fetchMock.mock.calls as unknown[][])[1]?.[1] as RequestInit | undefined;
+    const writeBody = JSON.parse(String(writeInit?.body));
+    expect(writeBody.values).toEqual([
+      ['ID', 'Name', 'Amount'],
+      ['201', 'Alice', '15'],
+      ['202', 'Bob', '25']
+    ]);
+
+    db.close();
+  });
+
+  it('reads Excel file source rows and writes them to Google Sheets', async () => {
+    const xlsxPath = path.join(os.tmpdir(), `gssync-source-${Date.now()}-${Math.random()}.xlsx`);
+    cleanupPaths.push(xlsxPath);
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet([
+      { id: 301, name: 'Alice', amount: 35 },
+      { id: 302, name: 'Bob', amount: 45 }
+    ]);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Orders');
+    XLSX.writeFile(workbook, xlsxPath);
+
+    const { db, userId, jobId, executor } = await setupFixture({
+      destinationConfig: {
+        spreadsheetId: 'spreadsheet-123',
+        sheetName: 'SyncData',
+        writeMode: 'replace',
+        source: {
+          type: 'excel',
+          filePath: xlsxPath,
+          worksheetName: 'Orders'
+        }
+      }
+    });
+
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => ''
+      } as unknown as Response;
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await executor.execute({ jobId, userId, runId: 1 });
+
+    const writeInit = (fetchMock.mock.calls as unknown[][])[1]?.[1] as RequestInit | undefined;
+    const writeBody = JSON.parse(String(writeInit?.body));
+    expect(writeBody.values).toEqual([
+      ['ID', 'Name', 'Amount'],
+      [301, 'Alice', 35],
+      [302, 'Bob', 45]
+    ]);
+
+    db.close();
+  });
+
+  it('rejects file source when file path does not exist', async () => {
+    const missingFilePath = path.join(os.tmpdir(), `does-not-exist-${Date.now()}.csv`);
+
+    const { db, userId, jobId, executor } = await setupFixture({
+      destinationConfig: {
+        spreadsheetId: 'spreadsheet-123',
+        sheetName: 'SyncData',
+        writeMode: 'replace',
+        source: {
+          type: 'csv',
+          filePath: missingFilePath
+        }
+      }
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => ''
+      }))
+    );
+
+    await expect(executor.execute({ jobId, userId, runId: 1 })).rejects.toThrow(`CSV source file not found at path: ${missingFilePath}`);
 
     db.close();
   });
