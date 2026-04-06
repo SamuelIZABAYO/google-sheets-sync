@@ -1,5 +1,10 @@
 import Database from 'better-sqlite3';
+import fs from 'node:fs';
+import path from 'node:path';
+
 import type { FastifyBaseLogger } from 'fastify';
+import { parse as parseCsv } from 'csv-parse/sync';
+import ExcelJS from 'exceljs';
 import { GoogleTokenRepository, type GoogleTokenRecord } from '../db/google-token-repository.js';
 import { SyncJobRepository } from '../db/sync-job-repository.js';
 import { GoogleOAuthService } from './google-oauth-service.js';
@@ -12,7 +17,7 @@ type DestinationConfig = {
   writeMode?: 'replace' | 'append';
   includeHeaders?: boolean;
   source?: {
-    type?: 'sqlite' | 'postgres' | 'rest';
+    type?: 'sqlite' | 'postgres' | 'rest' | 'csv' | 'excel';
     databasePath?: string;
     connectionString?: string;
     ssl?: {
@@ -32,6 +37,10 @@ type DestinationConfig = {
     authTokenEnvVar?: string;
     authHeaderName?: string;
     allowInsecureHttp?: boolean;
+    filePath?: string;
+    worksheetName?: string;
+    fileFormat?: 'csv' | 'xlsx' | 'xls';
+    hasHeaderRow?: boolean;
   };
 };
 
@@ -161,8 +170,15 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
       throw new Error('destinationConfig must include spreadsheetId and sheetName');
     }
 
-    if (parsed.source?.type && parsed.source.type !== 'sqlite' && parsed.source.type !== 'postgres' && parsed.source.type !== 'rest') {
-      throw new Error('source.type must be one of "sqlite", "postgres", or "rest"');
+    if (
+      parsed.source?.type &&
+      parsed.source.type !== 'sqlite' &&
+      parsed.source.type !== 'postgres' &&
+      parsed.source.type !== 'rest' &&
+      parsed.source.type !== 'csv' &&
+      parsed.source.type !== 'excel'
+    ) {
+      throw new Error('source.type must be one of "sqlite", "postgres", "rest", "csv", or "excel"');
     }
 
     if (parsed.source?.type === 'postgres' && !parsed.source.connectionString) {
@@ -171,6 +187,10 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
 
     if (parsed.source?.type === 'rest' && !parsed.source.url) {
       throw new Error('source.url is required for source.type="rest"');
+    }
+
+    if ((parsed.source?.type === 'csv' || parsed.source?.type === 'excel') && !parsed.source.filePath) {
+      throw new Error('source.filePath is required for source.type="csv" and source.type="excel"');
     }
 
     return parsed;
@@ -228,7 +248,134 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
       return this.readRestSourceRows(destinationConfig);
     }
 
+    if (destinationConfig.source?.type === 'csv') {
+      return this.readCsvSourceRows(destinationConfig);
+    }
+
+    if (destinationConfig.source?.type === 'excel') {
+      return this.readExcelSourceRows(destinationConfig);
+    }
+
     return this.readSourceRows(defaultTable, destinationConfig);
+  }
+
+  private readCsvSourceRows(destinationConfig: DestinationConfig): JsonRow[] {
+    const source = destinationConfig.source;
+    if (!source?.filePath) {
+      throw new Error('source.filePath is required for source.type="csv"');
+    }
+
+    const filePath = source.filePath;
+    this.assertReadableFile(filePath, 'CSV');
+
+    const content = fs.readFileSync(filePath, 'utf8');
+    const hasHeaderRow = source.hasHeaderRow !== false;
+
+    const parsed = parseCsv(content, {
+      bom: true,
+      skip_empty_lines: true,
+      columns: hasHeaderRow
+    }) as unknown[];
+
+    if (!hasHeaderRow) {
+      return this.rowsFromMatrix(parsed as unknown[][]);
+    }
+
+    this.validateObjectRows(parsed, 'CSV');
+    return parsed as JsonRow[];
+  }
+
+  private async readExcelSourceRows(destinationConfig: DestinationConfig): Promise<JsonRow[]> {
+    const source = destinationConfig.source;
+    if (!source?.filePath) {
+      throw new Error('source.filePath is required for source.type="excel"');
+    }
+
+    const filePath = source.filePath;
+    this.assertReadableFile(filePath, 'Excel');
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
+
+    const worksheetName = source.worksheetName?.trim();
+    const worksheet = worksheetName ? workbook.getWorksheet(worksheetName) : workbook.worksheets[0];
+
+    if (!worksheet) {
+      throw new Error(
+        worksheetName ? `Excel source worksheet not found: ${worksheetName}` : 'Excel source workbook contains no sheets'
+      );
+    }
+
+    const hasHeaderRow = source.hasHeaderRow !== false;
+    const rows = worksheet
+      .getSheetValues()
+      .slice(1)
+      .map((row) => (Array.isArray(row) ? row.slice(1) : []));
+
+    if (hasHeaderRow) {
+      const headerRow = rows[0] ?? [];
+      const dataRows = rows.slice(1);
+      const headers = headerRow.map((cell, index) => {
+        const normalized = String(cell ?? '').trim();
+        return normalized.length > 0 ? normalized : `column_${index + 1}`;
+      });
+
+      const objectRows = dataRows
+        .filter((row) => row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== ''))
+        .map((row) => {
+          const record: JsonRow = {};
+          headers.forEach((header, index) => {
+            record[header] = row[index] ?? null;
+          });
+          return record;
+        });
+
+      this.validateObjectRows(objectRows, 'Excel');
+      return objectRows;
+    }
+
+    return this.rowsFromMatrix(rows);
+  }
+
+  private rowsFromMatrix(matrixRows: unknown[][]): JsonRow[] {
+    if (matrixRows.length === 0) {
+      return [];
+    }
+
+    const dataRows = matrixRows.filter((row) => row.some((cell) => cell !== null && cell !== undefined && String(cell).trim() !== ''));
+
+    if (dataRows.length === 0) {
+      return [];
+    }
+
+    const width = Math.max(...dataRows.map((row) => row.length));
+    const syntheticHeaders = Array.from({ length: width }, (_, index) => `column_${index + 1}`);
+
+    return dataRows.map((row) => {
+      const record: JsonRow = {};
+      syntheticHeaders.forEach((header, index) => {
+        record[header] = row[index] ?? null;
+      });
+      return record;
+    });
+  }
+
+  private assertReadableFile(filePath: string, sourceLabel: 'CSV' | 'Excel'): void {
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`${sourceLabel} source file not found at path: ${filePath}`);
+    }
+
+    const stats = fs.statSync(filePath);
+    if (!stats.isFile()) {
+      throw new Error(`${sourceLabel} source path must point to a file: ${filePath}`);
+    }
+  }
+
+  private validateObjectRows(rows: unknown[], sourceLabel: 'CSV' | 'Excel'): void {
+    const invalidItem = rows.find((item) => item === null || typeof item !== 'object' || Array.isArray(item));
+    if (invalidItem !== undefined) {
+      throw new Error(`${sourceLabel} source rows must be objects`);
+    }
   }
 
   private async readPostgresSourceRows(defaultTable: string, destinationConfig: DestinationConfig): Promise<JsonRow[]> {
