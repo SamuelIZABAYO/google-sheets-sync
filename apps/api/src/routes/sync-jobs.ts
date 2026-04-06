@@ -12,6 +12,11 @@ import {
 } from '../services/sync-run-service.js';
 import { isCronExpressionValid } from '../services/sync-scheduler.js';
 
+const webhookTriggerConfigSchema = z.object({
+  secret: z.string().trim().min(16).max(256),
+  allowedEvents: z.array(z.string().trim().min(1).max(100)).optional()
+});
+
 const createSyncJobSchema = z
   .object({
     name: z.string().trim().min(1).max(200),
@@ -56,6 +61,17 @@ const createSyncJobSchema = z
         message: 'cronExpression is only allowed for schedule trigger'
       });
     }
+
+    if (triggerType === 'webhook') {
+      const parsed = webhookTriggerConfigSchema.safeParse(value.triggerConfig);
+      if (!parsed.success) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['triggerConfig'],
+          message: 'triggerConfig must include a valid webhook secret'
+        });
+      }
+    }
   });
 
 const updateSyncJobSchema = z
@@ -90,6 +106,17 @@ const updateSyncJobSchema = z
         path: ['cronExpression'],
         message: 'cronExpression is only allowed for schedule trigger'
       });
+    }
+
+    if (value.triggerType === 'webhook' && value.triggerConfig !== undefined) {
+      const parsed = webhookTriggerConfigSchema.safeParse(value.triggerConfig);
+      if (!parsed.success) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['triggerConfig'],
+          message: 'triggerConfig must include a valid webhook secret'
+        });
+      }
     }
   });
 

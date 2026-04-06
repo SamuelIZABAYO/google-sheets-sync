@@ -121,6 +121,17 @@ Token storage details:
 - Callback URL defaults to `https://APP_DOMAIN/auth/google/callback`, designed for **Caddy TLS** on Hetzner.
 - Sync executor now auto-refreshes expired Google access tokens using the stored refresh token, then persists the new encrypted token and updated expiry.
 
+## Webhook trigger activation (Task 4)
+
+- `POST /webhooks/sync-jobs/:id/trigger` enqueues a webhook-triggered sync run (`triggerSource=webhook`) and returns `202`.
+- Webhook payload validation requires:
+  - JSON body with `event` string (plus optional `payload`, `timestamp`)
+  - `x-webhook-secret` header matching the job webhook secret
+- Configure webhook jobs via `POST /sync-jobs` or `PATCH /sync-jobs/:id` using:
+  - `triggerType: "webhook"`
+  - `triggerConfig.secret` (min 16 chars)
+  - Optional `triggerConfig.allowedEvents` allowlist
+
 ## Job queue + workers (Task 6)
 
 - `POST /sync-jobs/:id/run` enqueues a manual sync run and returns `202` with a queued run record.

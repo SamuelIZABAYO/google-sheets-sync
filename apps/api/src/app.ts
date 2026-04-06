@@ -3,6 +3,7 @@ import { createDatabase } from './db/sqlite.js';
 import { healthRoute } from './routes/health.js';
 import { authRoutes } from './routes/auth.js';
 import { syncJobRoutes } from './routes/sync-jobs.js';
+import { webhookRoutes } from './routes/webhooks.js';
 import { createSyncQueueFromEnv, type SyncQueue } from './services/sync-queue.js';
 import { SyncWorkerPool, workerPoolConfigFromEnv, type SyncExecutor } from './services/sync-worker-pool.js';
 import { SourceToSheetSyncExecutor } from './services/source-to-sheet-sync-executor.js';
@@ -34,6 +35,7 @@ export function buildApp(options: BuildAppOptions = {}) {
   app.register(healthRoute);
   app.register(authRoutes);
   app.register(syncJobRoutes);
+  app.register(webhookRoutes);
 
   let workerPool: SyncWorkerPool | null = null;
   let scheduler: SyncScheduler | null = null;
