@@ -103,6 +103,7 @@ export function DashboardPage() {
   const [jobs, setJobs] = useState<SyncJob[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   const [mode, setMode] = useState<'create' | 'edit'>('create');
   const [editingJobId, setEditingJobId] = useState<number | null>(null);
@@ -159,6 +160,7 @@ export function DashboardPage() {
     setEditingJobId(null);
     setFormState(defaultFormState);
     setError(null);
+    setFormError(null);
   }
 
   function startEdit(job: SyncJob) {
@@ -166,10 +168,21 @@ export function DashboardPage() {
     setEditingJobId(job.id);
     setFormState(mapJobToFormState(job));
     setError(null);
+    setFormError(null);
   }
 
   function updateField<K extends keyof JobFormState>(key: K, value: JobFormState[K]) {
     setFormState((previous) => ({ ...previous, [key]: value }));
+  }
+
+  function prettyJsonField(field: 'destinationConfigJson' | 'fieldMappingJson' | 'triggerConfigJson') {
+    try {
+      const parsed = JSON.parse(formState[field]) as unknown;
+      updateField(field, `${JSON.stringify(parsed, null, 2)}\n`);
+      setFormError(null);
+    } catch {
+      setFormError(`Cannot format ${field}: invalid JSON`);
+    }
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -180,6 +193,7 @@ export function DashboardPage() {
 
     setSubmitting(true);
     setError(null);
+    setFormError(null);
 
     try {
       const destinationConfig = parseJsonObject(formState.destinationConfigJson, 'Destination config');
@@ -221,14 +235,14 @@ export function DashboardPage() {
       }
     } catch (submitError) {
       if (submitError instanceof ApiError) {
-        setError(submitError.message);
+        setFormError(submitError.message);
         if (submitError.status === 401) {
           logout();
         }
       } else if (submitError instanceof Error) {
-        setError(submitError.message);
+        setFormError(submitError.message);
       } else {
-        setError('Failed to save sync job');
+        setFormError('Failed to save sync job');
       }
     } finally {
       setSubmitting(false);
@@ -344,136 +358,104 @@ export function DashboardPage() {
           </Card>
         </div>
 
-        {error ? (
-          <div role="alert" className="mb-4 flex items-center gap-2 rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            <CircleAlert className="h-4 w-4" />
-            {error}
-          </div>
-        ) : null}
+          {formError ? <p role="alert" style={{ color: '#b00020', marginTop: 0 }}>{formError}</p> : null}
 
-        <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <CardTitle>{mode === 'create' ? 'Create sync job' : `Edit job #${editingJobId ?? ''}`}</CardTitle>
-                  <CardDescription>Configure source, destination, and trigger settings.</CardDescription>
-                </div>
-                {mode === 'edit' ? (
-                  <Button variant="outline" size="sm" onClick={startCreate}>
-                    <Plus className="mr-2 h-4 w-4" /> New
-                  </Button>
-                ) : null}
-              </div>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={onSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="job-name">Name</Label>
-                  <Input id="job-name" value={formState.name} onChange={(event) => updateField('name', event.currentTarget.value)} required />
-                </div>
+          <form onSubmit={onSubmit} style={{ display: 'grid', gap: '0.6rem' }}>
+            <label>
+              Name
+              <input value={formState.name} onChange={(event) => updateField('name', event.currentTarget.value)} required style={{ width: '100%', padding: '0.45rem' }} />
+            </label>
+            <label>
+              Source Spreadsheet ID
+              <input
+                value={formState.sourceSpreadsheetId}
+                onChange={(event) => updateField('sourceSpreadsheetId', event.currentTarget.value)}
+                required
+                style={{ width: '100%', padding: '0.45rem' }}
+              />
+            </label>
+            <label>
+              Source Sheet Name (optional)
+              <input value={formState.sourceSheetName} onChange={(event) => updateField('sourceSheetName', event.currentTarget.value)} style={{ width: '100%', padding: '0.45rem' }} />
+            </label>
+            <label>
+              Destination Type
+              <input value={formState.destinationType} onChange={(event) => updateField('destinationType', event.currentTarget.value)} required style={{ width: '100%', padding: '0.45rem' }} />
+            </label>
+            <label>
+              Destination Config (JSON)
+              <textarea value={formState.destinationConfigJson} onChange={(event) => updateField('destinationConfigJson', event.currentTarget.value)} rows={4} style={{ width: '100%' }} />
+              <button type="button" onClick={() => prettyJsonField('destinationConfigJson')} style={{ marginTop: '0.3rem' }}>
+                Format JSON
+              </button>
+            </label>
+            <label>
+              Field Mapping (JSON)
+              <textarea value={formState.fieldMappingJson} onChange={(event) => updateField('fieldMappingJson', event.currentTarget.value)} rows={4} style={{ width: '100%' }} />
+              <button type="button" onClick={() => prettyJsonField('fieldMappingJson')} style={{ marginTop: '0.3rem' }}>
+                Format JSON
+              </button>
+            </label>
+            <label>
+              Trigger Type
+              <select value={formState.triggerType} onChange={(event) => updateField('triggerType', event.currentTarget.value as SyncTriggerType)} style={{ width: '100%', padding: '0.45rem' }}>
+                <option value="manual">manual</option>
+                <option value="schedule">schedule</option>
+                <option value="webhook">webhook</option>
+              </select>
+            </label>
+            <label>
+              Trigger Config (JSON)
+              <textarea value={formState.triggerConfigJson} onChange={(event) => updateField('triggerConfigJson', event.currentTarget.value)} rows={3} style={{ width: '100%' }} />
+              <button type="button" onClick={() => prettyJsonField('triggerConfigJson')} style={{ marginTop: '0.3rem' }}>
+                Format JSON
+              </button>
+            </label>
+            <label>
+              Cron Expression (optional)
+              <input value={formState.cronExpression} onChange={(event) => updateField('cronExpression', event.currentTarget.value)} placeholder="*/10 * * * *" style={{ width: '100%', padding: '0.45rem' }} />
+            </label>
+            <label>
+              Queue Topic
+              <input value={formState.queueTopic} onChange={(event) => updateField('queueTopic', event.currentTarget.value)} style={{ width: '100%', padding: '0.45rem' }} />
+            </label>
+            <label>
+              Status
+              <select value={formState.status} onChange={(event) => updateField('status', event.currentTarget.value as SyncJobStatus)} style={{ width: '100%', padding: '0.45rem' }}>
+                <option value="active">active</option>
+                <option value="paused">paused</option>
+                <option value="archived">archived</option>
+              </select>
+            </label>
 
-                <div className="space-y-2">
-                  <Label htmlFor="source-id">Source Spreadsheet ID</Label>
-                  <Input id="source-id" value={formState.sourceSpreadsheetId} onChange={(event) => updateField('sourceSpreadsheetId', event.currentTarget.value)} required />
-                </div>
+            <button type="submit" disabled={submitting} style={{ padding: '0.6rem 0.8rem' }}>
+              {submitting ? 'Saving…' : mode === 'create' ? 'Create job' : 'Save changes'}
+            </button>
+          </form>
+        </section>
 
-                <div className="space-y-2">
-                  <Label htmlFor="sheet-name">Source Sheet Name (optional)</Label>
-                  <Input id="sheet-name" value={formState.sourceSheetName} onChange={(event) => updateField('sourceSheetName', event.currentTarget.value)} />
-                </div>
+        <section style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem' }}>
+          <h2 style={{ marginTop: 0 }}>Jobs & run status</h2>
+          {error ? <p role="alert" style={{ color: '#b00020' }}>{error}</p> : null}
 
-                <div className="space-y-2">
-                  <Label htmlFor="destination-type">Destination Type</Label>
-                  <Input id="destination-type" value={formState.destinationType} onChange={(event) => updateField('destinationType', event.currentTarget.value)} required />
-                </div>
+          {isLoading ? <p>Loading jobs…</p> : null}
 
-                <div className="space-y-2">
-                  <Label htmlFor="destination-config">Destination Config (JSON)</Label>
-                  <Textarea id="destination-config" value={formState.destinationConfigJson} onChange={(event) => updateField('destinationConfigJson', event.currentTarget.value)} rows={4} />
-                </div>
+          {!isLoading && jobs.length === 0 ? <p>No sync jobs yet. Create your first one.</p> : null}
 
-                <div className="space-y-2">
-                  <Label htmlFor="field-mapping">Field Mapping (JSON)</Label>
-                  <Textarea id="field-mapping" value={formState.fieldMappingJson} onChange={(event) => updateField('fieldMappingJson', event.currentTarget.value)} rows={4} />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label>Trigger Type</Label>
-                    <Select value={formState.triggerType} onValueChange={(value) => updateField('triggerType', value as SyncTriggerType)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose trigger" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="manual">manual</SelectItem>
-                        <SelectItem value="schedule">schedule</SelectItem>
-                        <SelectItem value="webhook">webhook</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Status</Label>
-                    <Select value={formState.status} onValueChange={(value) => updateField('status', value as SyncJobStatus)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Choose status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="active">active</SelectItem>
-                        <SelectItem value="paused">paused</SelectItem>
-                        <SelectItem value="archived">archived</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="trigger-config">Trigger Config (JSON)</Label>
-                  <Textarea id="trigger-config" value={formState.triggerConfigJson} onChange={(event) => updateField('triggerConfigJson', event.currentTarget.value)} rows={3} />
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="cron">Cron Expression (optional)</Label>
-                    <Input id="cron" value={formState.cronExpression} onChange={(event) => updateField('cronExpression', event.currentTarget.value)} placeholder="*/10 * * * *" />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="queue-topic">Queue Topic</Label>
-                    <Input id="queue-topic" value={formState.queueTopic} onChange={(event) => updateField('queueTopic', event.currentTarget.value)} />
-                  </div>
-                </div>
-
-                <Button type="submit" disabled={submitting} className="w-full">
-                  {submitting ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Saving...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="mr-2 h-4 w-4" /> {mode === 'create' ? 'Create job' : 'Save changes'}
-                    </>
-                  )}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Jobs & run status</CardTitle>
-              <CardDescription>Review run health and trigger actions instantly.</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {isLoading ? (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Loading jobs...
-                </div>
-              ) : null}
-
-              {!isLoading && jobs.length === 0 ? <p className="text-sm text-muted-foreground">No sync jobs yet. Create your first one.</p> : null}
-
-              {!isLoading && jobs.length > 0 ? (
-                <div className="space-y-3">
+          {!isLoading && jobs.length > 0 ? (
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: '0.4rem' }}>Name</th>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: '0.4rem' }}>Status</th>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: '0.4rem' }}>Trigger</th>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: '0.4rem' }}>Last run</th>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: '0.4rem' }}>Run status</th>
+                    <th style={{ textAlign: 'left', borderBottom: '1px solid #e2e8f0', padding: '0.4rem' }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
                   {jobs.map((job) => (
                     <div key={job.id} className="rounded-lg border bg-white p-4 shadow-sm">
                       <div className="flex flex-wrap items-start justify-between gap-3">
