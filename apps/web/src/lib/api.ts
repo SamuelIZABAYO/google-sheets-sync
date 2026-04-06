@@ -175,13 +175,16 @@ export class ApiClient {
   }
 
   private async authedRequest(path: string, accessToken: string, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers);
+    headers.set('authorization', `Bearer ${accessToken}`);
+
+    if (init.body !== undefined && !headers.has('content-type')) {
+      headers.set('content-type', 'application/json');
+    }
+
     const response = await fetch(buildUrl(this.baseUrl, path), {
       ...init,
-      headers: {
-        authorization: `Bearer ${accessToken}`,
-        'content-type': 'application/json',
-        ...(init.headers ?? {})
-      }
+      headers
     });
 
     if (!response.ok) {

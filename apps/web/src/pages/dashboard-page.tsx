@@ -694,7 +694,13 @@ export function DashboardPage() {
                         <Button variant="outline" size="sm" onClick={() => cloneIntoForm(job)}>
                           <Copy className="mr-2 h-4 w-4" /> Duplicate
                         </Button>
-                        <Button variant="outline" size="sm" onClick={() => onRun(job)} disabled={activeJobId === job.id}>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => onRun(job)}
+                          disabled={activeJobId === job.id || job.status !== 'active'}
+                          title={job.status !== 'active' ? 'Only active jobs can be run manually' : undefined}
+                        >
                           {activeJobId === job.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
                           Run now
                         </Button>
