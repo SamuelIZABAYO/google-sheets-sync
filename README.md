@@ -145,6 +145,30 @@ Token storage details:
 - Duplicate scheduling in the same minute is prevented using SQLite `sync_runs.queued_at` checks.
 - Designed to run in the API process behind Caddy/HTTPS on Hetzner, with SQLite as system of record.
 
+## Source connector support
+
+The sync executor can now read source rows from either:
+
+- **SQLite** (default): `destinationConfig.source.type = "sqlite"`
+- **PostgreSQL**: `destinationConfig.source.type = "postgres"`
+
+PostgreSQL source config is provided per sync job via `destinationConfig.source`:
+
+```json
+{
+  "type": "postgres",
+  "connectionString": "postgresql://USER:PASSWORD@HOST:5432/DB",
+  "query": "SELECT id, name, amount FROM source_table WHERE amount >= $1",
+  "params": [10],
+  "ssl": { "enabled": true, "rejectUnauthorized": true }
+}
+```
+
+Notes:
+- Only read-only `SELECT` queries are accepted.
+- If `query` is omitted, the executor falls back to `SELECT * FROM <source.table || sourceSpreadsheetId>`.
+- SSL is enabled by default for PostgreSQL sources; set `ssl.enabled=false` only for trusted local/private environments.
+
 ## Feature Roadmap & Prioritized Next Bets
 
 This document outlines proposed next steps to evolve the platform beyond the MVP launch.

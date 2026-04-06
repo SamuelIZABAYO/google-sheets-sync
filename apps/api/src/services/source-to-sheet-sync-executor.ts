@@ -14,6 +14,11 @@ type DestinationConfig = {
   source?: {
     type?: 'sqlite' | 'postgres';
     databasePath?: string;
+    connectionString?: string;
+    ssl?: {
+      enabled?: boolean;
+      rejectUnauthorized?: boolean;
+    };
     table?: string;
     query?: string;
     params?: unknown[];
@@ -50,6 +55,10 @@ function quoteSqliteIdentifier(input: string): string {
   return `"${input.replaceAll('"', '""')}"`;
 }
 
+function quotePostgresIdentifier(input: string): string {
+  return `"${input.replaceAll('"', '""')}"`;
+}
+
 export class SourceToSheetSyncExecutor implements SyncExecutor {
   private readonly syncJobRepository: SyncJobRepository;
   private readonly googleTokenRepository: GoogleTokenRepository;
@@ -78,7 +87,10 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
     const destinationConfig = this.parseDestinationConfig(job.destinationConfigJson);
     const fieldMapping = this.parseFieldMapping(job.fieldMappingJson);
 
-    const sourceRows = this.readSourceRows(job.sourceSpreadsheetId, destinationConfig);
+    const sourceRows =
+      destinationConfig.source?.type === 'postgres'
+        ? await this.readPostgresSourceRows(job.sourceSpreadsheetId, destinationConfig)
+        : this.readSourceRows(job.sourceSpreadsheetId, destinationConfig);
 
     const mappedRows = sourceRows.map((row) => this.mapRow(row, fieldMapping));
     const headerRow = Object.values(fieldMapping);
@@ -142,8 +154,12 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
       throw new Error('destinationConfig must include spreadsheetId and sheetName');
     }
 
-    if (parsed.source?.type && parsed.source.type !== 'sqlite') {
-      throw new Error('Only source.type="sqlite" is supported in this deployment');
+    if (parsed.source?.type && parsed.source.type !== 'sqlite' && parsed.source.type !== 'postgres') {
+      throw new Error('source.type must be one of "sqlite" or "postgres"');
+    }
+
+    if (parsed.source?.type === 'postgres' && !parsed.source.connectionString) {
+      throw new Error('source.connectionString is required for source.type="postgres"');
     }
 
     return parsed;
@@ -161,6 +177,10 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
   }
 
   private readSourceRows(defaultTable: string, destinationConfig: DestinationConfig): JsonRow[] {
+    if (destinationConfig.source?.type === 'postgres') {
+      throw new Error('readSourceRows is only valid for sqlite sources');
+    }
+
     const source = destinationConfig.source;
     const dbPath = source?.databasePath ?? this.appDb.name;
     const db = new Database(dbPath, { readonly: true, fileMustExist: true });
@@ -185,6 +205,53 @@ export class SourceToSheetSyncExecutor implements SyncExecutor {
       return db.prepare(`SELECT * FROM ${quoteSqliteIdentifier(table)}`).all() as JsonRow[];
     } finally {
       db.close();
+    }
+  }
+
+  private async readPostgresSourceRows(defaultTable: string, destinationConfig: DestinationConfig): Promise<JsonRow[]> {
+    const source = destinationConfig.source;
+    if (!source?.connectionString) {
+      throw new Error('source.connectionString is required for source.type="postgres"');
+    }
+
+    const query = source.query?.trim();
+    const table = (source.table ?? defaultTable ?? '').trim();
+
+    let sql: string;
+    if (query) {
+      if (!isSelectQuery(query)) {
+        throw new Error('source.query must be a read-only SELECT statement');
+      }
+      sql = query;
+    } else {
+      if (!table) {
+        throw new Error('Source table is required (source.table or sourceSpreadsheetId)');
+      }
+      sql = `SELECT * FROM ${quotePostgresIdentifier(table)}`;
+    }
+
+    const params = Array.isArray(source.params) ? source.params : [];
+    const sslEnabled = source.ssl?.enabled !== false;
+    const rejectUnauthorized = source.ssl?.rejectUnauthorized !== false;
+
+    const { Pool } = await import('pg');
+    const pool = new Pool({
+      connectionString: source.connectionString,
+      ssl: sslEnabled
+        ? {
+            rejectUnauthorized
+          }
+        : false,
+      max: 1,
+      idleTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 10_000
+    });
+
+    try {
+      const result = await pool.query(sql, params);
+      return result.rows as JsonRow[];
+    } finally {
+      await pool.end();
     }
   }
 
