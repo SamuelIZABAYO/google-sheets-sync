@@ -70,6 +70,20 @@ function mapRow(row: SyncJobRow): SyncJob {
 export class SyncJobRepository {
   constructor(private readonly db: Database.Database) {}
 
+  findById(id: number): SyncJob | null {
+    const row = this.db
+      .prepare(
+        `SELECT id, user_id, name, status, source_spreadsheet_id, source_sheet_name, destination_type, destination_config_json,
+                field_mapping_json, trigger_type, trigger_config_json, cron_expression, queue_topic, last_run_status,
+                last_run_at, last_error_message, created_at, updated_at
+         FROM sync_jobs
+         WHERE id = ?`
+      )
+      .get(id) as SyncJobRow | undefined;
+
+    return row ? mapRow(row) : null;
+  }
+
   create(input: CreateSyncJobInput): SyncJob {
     const result = this.db
       .prepare(
