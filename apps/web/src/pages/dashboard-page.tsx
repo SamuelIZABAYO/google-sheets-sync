@@ -1,6 +1,14 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { CalendarClock, CircleAlert, Loader2, LogOut, Play, Plus, Save, Trash2 } from 'lucide-react';
 import { ApiError, createApiClientFromEnv, type SyncJob, type SyncJobStatus, type SyncTriggerType } from '../lib/api';
 import { useAuth } from '../context/auth-context';
+import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { Textarea } from '../components/ui/textarea';
 
 type JobFormState = {
   name: string;
@@ -32,7 +40,7 @@ const defaultFormState: JobFormState = {
 
 function formatTimestamp(value: string | null): string {
   if (!value) {
-    return '—';
+    return 'Never';
   }
 
   const date = new Date(value);
@@ -66,6 +74,26 @@ function mapJobToFormState(job: SyncJob): JobFormState {
     queueTopic: job.queueTopic,
     status: job.status
   };
+}
+
+function statusVariant(status: SyncJobStatus) {
+  if (status === 'active') {
+    return 'default';
+  }
+  if (status === 'paused') {
+    return 'secondary';
+  }
+  return 'outline';
+}
+
+function runVariant(status: SyncJob['lastRunStatus']) {
+  if (status === 'failed') {
+    return 'destructive';
+  }
+  if (status === 'succeeded') {
+    return 'default';
+  }
+  return 'secondary';
 }
 
 export function DashboardPage() {
@@ -291,28 +319,44 @@ export function DashboardPage() {
     }
   }
 
+  const activeCount = jobs.filter((job) => job.status === 'active').length;
+  const failedCount = jobs.filter((job) => job.lastRunStatus === 'failed').length;
+
   return (
-    <div style={{ minHeight: '100vh', background: '#f8fafc', fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <header style={{ padding: '1rem 1.5rem', borderBottom: '1px solid #e2e8f0', background: '#ffffff', display: 'flex', justifyContent: 'space-between' }}>
-        <div>
-          <h1 style={{ margin: 0 }}>Sync Job Management</h1>
-          <p style={{ margin: '0.25rem 0 0', color: '#64748b' }}>{user?.email}</p>
+    <div className="min-h-screen bg-slate-50">
+      <header className="sticky top-0 z-10 border-b bg-white/95 backdrop-blur">
+        <div className="container flex flex-wrap items-center justify-between gap-4 py-4">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">Sync Job Management</h1>
+            <p className="text-sm text-muted-foreground">Signed in as {user?.email}</p>
+          </div>
+          <Button variant="outline" onClick={logout}>
+            <LogOut className="mr-2 h-4 w-4" /> Log out
+          </Button>
         </div>
-        <button type="button" onClick={logout} style={{ padding: '0.5rem 0.75rem' }}>
-          Log out
-        </button>
       </header>
 
-      <main style={{ display: 'grid', gridTemplateColumns: 'minmax(330px, 420px) 1fr', gap: '1rem', padding: '1rem 1.5rem' }}>
-        <section style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '1rem' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ marginTop: 0 }}>{mode === 'create' ? 'Create sync job' : `Edit job #${editingJobId ?? ''}`}</h2>
-            {mode === 'edit' ? (
-              <button type="button" onClick={startCreate} style={{ padding: '0.4rem 0.6rem' }}>
-                New job
-              </button>
-            ) : null}
-          </div>
+      <main className="container py-6">
+        <div className="mb-6 grid gap-4 md:grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Total Jobs</CardDescription>
+              <CardTitle className="text-3xl">{jobs.length}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Active Pipelines</CardDescription>
+              <CardTitle className="text-3xl">{activeCount}</CardTitle>
+            </CardHeader>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardDescription>Failed Last Runs</CardDescription>
+              <CardTitle className="text-3xl">{failedCount}</CardTitle>
+            </CardHeader>
+          </Card>
+        </div>
 
           {formError ? <p role="alert" style={{ color: '#b00020', marginTop: 0 }}>{formError}</p> : null}
 
@@ -413,36 +457,45 @@ export function DashboardPage() {
                 </thead>
                 <tbody>
                   {jobs.map((job) => (
-                    <tr key={job.id}>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '0.45rem' }}>
-                        <strong>{job.name}</strong>
-                        <div style={{ color: '#64748b', fontSize: '0.85rem' }}>{job.sourceSpreadsheetId}</div>
-                      </td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '0.45rem' }}>{job.status}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '0.45rem' }}>{job.triggerType}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '0.45rem' }}>{formatTimestamp(job.lastRunAt)}</td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '0.45rem' }}>
-                        <div>{job.lastRunStatus}</div>
-                        {job.lastErrorMessage ? <div style={{ color: '#b00020', fontSize: '0.8rem' }}>{job.lastErrorMessage}</div> : null}
-                      </td>
-                      <td style={{ borderBottom: '1px solid #f1f5f9', padding: '0.45rem', whiteSpace: 'nowrap' }}>
-                        <button type="button" onClick={() => startEdit(job)} style={{ marginRight: '0.3rem' }}>
+                    <div key={job.id} className="rounded-lg border bg-white p-4 shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="font-semibold">{job.name}</h3>
+                          <p className="text-xs text-muted-foreground">{job.sourceSpreadsheetId}</p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant={statusVariant(job.status)}>{job.status}</Badge>
+                          <Badge variant={runVariant(job.lastRunStatus)}>{job.lastRunStatus}</Badge>
+                        </div>
+                      </div>
+
+                      <div className="mt-3 grid gap-1 text-sm text-muted-foreground sm:grid-cols-2">
+                        <p className="flex items-center gap-2">
+                          <CalendarClock className="h-4 w-4" /> Last run: {formatTimestamp(job.lastRunAt)}
+                        </p>
+                        <p>Trigger: {job.triggerType}</p>
+                        {job.lastErrorMessage ? <p className="text-destructive sm:col-span-2">Error: {job.lastErrorMessage}</p> : null}
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button variant="secondary" size="sm" onClick={() => startEdit(job)}>
                           Edit
-                        </button>
-                        <button type="button" onClick={() => onRun(job)} disabled={activeJobId === job.id} style={{ marginRight: '0.3rem' }}>
-                          {activeJobId === job.id ? 'Running…' : 'Run now'}
-                        </button>
-                        <button type="button" onClick={() => onDelete(job)} disabled={activeJobId === job.id}>
-                          Delete
-                        </button>
-                      </td>
-                    </tr>
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={() => onRun(job)} disabled={activeJobId === job.id}>
+                          {activeJobId === job.id ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Play className="mr-2 h-4 w-4" />}
+                          Run now
+                        </Button>
+                        <Button variant="destructive" size="sm" onClick={() => onDelete(job)} disabled={activeJobId === job.id}>
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        </Button>
+                      </div>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          ) : null}
-        </section>
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+        </div>
       </main>
     </div>
   );

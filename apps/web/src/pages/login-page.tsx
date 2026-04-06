@@ -1,7 +1,12 @@
 import { FormEvent, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
+import { Loader2, Lock, Mail } from 'lucide-react';
 import { ApiError } from '../lib/api';
 import { useAuth } from '../context/auth-context';
+import { Button } from '../components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { Label } from '../components/ui/label';
 
 export function LoginPage() {
   const { user, login } = useAuth();
@@ -36,40 +41,54 @@ export function LoginPage() {
   }
 
   return (
-    <main style={{ maxWidth: 420, margin: '8rem auto', padding: '1rem', fontFamily: 'Inter, system-ui, sans-serif' }}>
-      <h1 style={{ marginBottom: '0.5rem' }}>Automation Glass Dashboard</h1>
-      <p style={{ color: '#555', marginBottom: '1.25rem' }}>Sign in with your account to continue.</p>
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,_rgba(59,130,246,0.18),transparent_50%),radial-gradient(circle_at_bottom_left,_rgba(14,165,233,0.16),transparent_45%)]" />
+      <Card className="relative w-full max-w-md border-slate-200/70 bg-white/90 backdrop-blur">
+        <CardHeader className="space-y-2 text-center">
+          <CardTitle className="text-2xl">Google Sheets Sync</CardTitle>
+          <CardDescription>Sign in to manage your sync pipelines and monitor job health.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={onSubmit} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <div className="relative">
+                <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input id="email" type="email" value={email} onChange={(event) => setEmail(event.currentTarget.value)} className="pl-9" required autoComplete="email" />
+              </div>
+            </div>
 
-      <form onSubmit={onSubmit} style={{ display: 'grid', gap: '0.75rem' }}>
-        <label>
-          Email
-          <input
-            value={email}
-            onChange={(event) => setEmail(event.currentTarget.value)}
-            type="email"
-            required
-            style={{ display: 'block', width: '100%', padding: '0.5rem' }}
-          />
-        </label>
+            <div className="space-y-2">
+              <Label htmlFor="password">Password</Label>
+              <div className="relative">
+                <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  id="password"
+                  type="password"
+                  value={password}
+                  onChange={(event) => setPassword(event.currentTarget.value)}
+                  className="pl-9"
+                  required
+                  minLength={8}
+                  autoComplete="current-password"
+                />
+              </div>
+            </div>
 
-        <label>
-          Password
-          <input
-            value={password}
-            onChange={(event) => setPassword(event.currentTarget.value)}
-            type="password"
-            required
-            minLength={8}
-            style={{ display: 'block', width: '100%', padding: '0.5rem' }}
-          />
-        </label>
+            {error ? <p role="alert" className="rounded-md border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
 
-        {error ? <p role="alert" style={{ color: '#b00020' }}>{error}</p> : null}
-
-        <button type="submit" disabled={submitting} style={{ padding: '0.65rem 1rem' }}>
-          {submitting ? 'Signing in…' : 'Sign in'}
-        </button>
-      </form>
+            <Button type="submit" className="w-full" disabled={submitting}>
+              {submitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Signing in...
+                </>
+              ) : (
+                'Sign in'
+              )}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </main>
   );
 }
