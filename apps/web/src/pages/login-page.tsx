@@ -1,6 +1,6 @@
 import { FormEvent, useState } from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { Loader2, Lock, Mail } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Lock, Mail } from 'lucide-react';
 import { ApiError } from '../lib/api';
 import { useAuth } from '../context/auth-context';
 import { Button } from '../components/ui/button';
@@ -14,6 +14,7 @@ export function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const location = useLocation();
 
   const redirectPath = (location.state as { from?: { pathname?: string } } | null)?.from?.pathname ?? '/';
@@ -64,14 +65,22 @@ export function LoginPage() {
                 <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="password"
-                  type="password"
+                  type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(event) => setPassword(event.currentTarget.value)}
-                  className="pl-9"
+                  className="pl-9 pr-10"
                   required
                   minLength={8}
                   autoComplete="current-password"
                 />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((previous) => !previous)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground transition hover:text-foreground"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
               </div>
             </div>
 
