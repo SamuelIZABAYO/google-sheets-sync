@@ -7,6 +7,7 @@ const cleanupPaths: string[] = [];
 
 afterEach(() => {
   vi.restoreAllMocks();
+  vi.resetModules();
   for (const p of cleanupPaths.splice(0, cleanupPaths.length)) {
     if (fs.existsSync(p)) {
       fs.rmSync(p, { force: true });
@@ -15,7 +16,14 @@ afterEach(() => {
 });
 
 describe('source to sheet sync executor', () => {
-  async function setupFixture(options?: { expiresAtOffsetMs?: number; refreshToken?: string | null }) {
+  type SetupOptions = {
+    expiresAtOffsetMs?: number;
+    refreshToken?: string | null;
+    sourceSpreadsheetId?: string;
+    destinationConfig?: Record<string, unknown>;
+  };
+
+  async function setupFixture(options?: SetupOptions) {
     process.env.NODE_ENV = 'test';
     process.env.JWT_SECRET = 'test-secret-key-with-32-characters!!';
     process.env.GOOGLE_CLIENT_ID = 'test-google-client-id';
@@ -65,6 +73,18 @@ describe('source to sheet sync executor', () => {
       INSERT INTO source_records (name, amount) VALUES ('Alice', 10), ('Bob', 20);
     `);
 
+    const destinationConfig =
+      options?.destinationConfig ??
+      {
+        spreadsheetId: 'spreadsheet-123',
+        sheetName: 'SyncData',
+        writeMode: 'replace',
+        source: {
+          type: 'sqlite',
+          table: 'source_records'
+        }
+      };
+
     const jobResult = db
       .prepare(
         `INSERT INTO sync_jobs
@@ -74,18 +94,10 @@ describe('source to sheet sync executor', () => {
       .run(
         userId,
         'SQLite to Google Sheet',
-        'source_records',
+        options?.sourceSpreadsheetId ?? 'source_records',
         null,
         'google_sheets',
-        JSON.stringify({
-          spreadsheetId: 'spreadsheet-123',
-          sheetName: 'SyncData',
-          writeMode: 'replace',
-          source: {
-            type: 'sqlite',
-            table: 'source_records'
-          }
-        }),
+        JSON.stringify(destinationConfig),
         JSON.stringify({ id: 'ID', name: 'Name', amount: 'Amount' })
       );
 
@@ -203,6 +215,105 @@ describe('source to sheet sync executor', () => {
     expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(4);
     const tokenRequest = fetchMock.mock.calls.find((call) => String(call[0]).includes('oauth2.googleapis.com/token'));
     expect(tokenRequest).toBeDefined();
+
+    db.close();
+  });
+
+  it('reads postgres source rows and writes them to Google Sheets', async () => {
+    const queryMock = vi.fn().mockResolvedValue({
+      rows: [
+        { id: 11, name: 'Alice', amount: 10 },
+        { id: 12, name: 'Bob', amount: 20 }
+      ]
+    });
+    const endMock = vi.fn().mockResolvedValue(undefined);
+    const poolFactoryMock = vi.fn().mockImplementation(() => ({
+      query: queryMock,
+      end: endMock
+    }));
+
+    vi.doMock('pg', () => ({
+      Pool: poolFactoryMock
+    }));
+
+    const { db, userId, jobId, executor } = await setupFixture({
+      sourceSpreadsheetId: 'public.source_records',
+      destinationConfig: {
+        spreadsheetId: 'spreadsheet-123',
+        sheetName: 'SyncData',
+        writeMode: 'replace',
+        source: {
+          type: 'postgres',
+          connectionString: 'postgresql://sync_user:secret@db.internal:5432/sync',
+          query: 'SELECT id, name, amount FROM source_records WHERE amount >= $1',
+          params: [10],
+          ssl: { enabled: true, rejectUnauthorized: true }
+        }
+      }
+    });
+
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        status: 200,
+        text: async () => ''
+      } as unknown as Response;
+    });
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await executor.execute({ jobId, userId, runId: 1 });
+
+    expect(poolFactoryMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connectionString: 'postgresql://sync_user:secret@db.internal:5432/sync',
+        ssl: { rejectUnauthorized: true },
+        max: 1
+      })
+    );
+    expect(queryMock).toHaveBeenCalledWith('SELECT id, name, amount FROM source_records WHERE amount >= $1', [10]);
+    expect(endMock).toHaveBeenCalledTimes(1);
+
+    const writeInit = (fetchMock.mock.calls as unknown[][])[1]?.[1] as RequestInit | undefined;
+    expect(writeInit).toBeDefined();
+    const writeBody = JSON.parse(String(writeInit?.body));
+    expect(writeBody.values).toEqual([
+      ['ID', 'Name', 'Amount'],
+      [11, 'Alice', 10],
+      [12, 'Bob', 20]
+    ]);
+
+    db.close();
+  });
+
+  it('rejects non-select postgres queries', async () => {
+    vi.doMock('pg', () => ({
+      Pool: vi.fn()
+    }));
+
+    const { db, userId, jobId, executor } = await setupFixture({
+      destinationConfig: {
+        spreadsheetId: 'spreadsheet-123',
+        sheetName: 'SyncData',
+        writeMode: 'replace',
+        source: {
+          type: 'postgres',
+          connectionString: 'postgresql://sync_user:secret@db.internal:5432/sync',
+          query: 'DELETE FROM source_records'
+        }
+      }
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => ''
+      }))
+    );
+
+    await expect(executor.execute({ jobId, userId, runId: 1 })).rejects.toThrow('source.query must be a read-only SELECT statement');
 
     db.close();
   });
