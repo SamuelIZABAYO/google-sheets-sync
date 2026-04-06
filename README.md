@@ -144,3 +144,36 @@ Token storage details:
 - For each due job, scheduler creates a queued `sync_runs` record and enqueues a message via Upstash Redis REST queue.
 - Duplicate scheduling in the same minute is prevented using SQLite `sync_runs.queued_at` checks.
 - Designed to run in the API process behind Caddy/HTTPS on Hetzner, with SQLite as system of record.
+
+## Feature Roadmap & Prioritized Next Bets
+
+This document outlines proposed next steps to evolve the platform beyond the MVP launch.
+
+### Priority 1: Core Source & Trigger Enhancements
+- Add support for additional source types:
+  - PostgreSQL database connections
+  - REST API data sources
+  - CSV/Excel file imports
+- Implement webhook triggers for real-time sync activation
+
+### Priority 2: UX & Analytics Improvements
+- Advanced data mapping and transformation UI
+- Detailed run analytics and history views
+- UI improvements for bulk job management and scheduling
+
+### Priority 3: Collaboration & Notifications
+- Multi-user/team support with role-based access control
+- Real-time in-app notifications and email alerts for sync job statuses
+
+### Priority 4: Monetization & Business
+- Subscription and billing management
+- Onboarding and workflow automation for new users
+- Marketing site enhancements
+
+### Other Technical Enhancements
+- Improve security audits and monitoring
+- Refine scalability for thousands of users and jobs
+- Backup and disaster recovery plans
+
+---
+Updated: 2026-04-06
