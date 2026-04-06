@@ -317,4 +317,96 @@ describe('source to sheet sync executor', () => {
 
     db.close();
   });
+
+  it('reads REST source rows and writes them to Google Sheets with env-token auth', async () => {
+    process.env.REST_API_SOURCE_TOKEN = 'rest-api-secret-token';
+
+    const { db, userId, jobId, executor } = await setupFixture({
+      destinationConfig: {
+        spreadsheetId: 'spreadsheet-123',
+        sheetName: 'SyncData',
+        writeMode: 'replace',
+        source: {
+          type: 'rest',
+          url: 'https://api.example.com/orders',
+          method: 'GET',
+          queryParams: { status: 'active', limit: 2 },
+          responsePath: 'data.items',
+          authTokenEnvVar: 'REST_API_SOURCE_TOKEN'
+        }
+      }
+    });
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          data: {
+            items: [
+              { id: 101, name: 'Alice', amount: 15 },
+              { id: 102, name: 'Bob', amount: 25 }
+            ]
+          }
+        })
+      } as unknown as Response)
+      .mockResolvedValue({
+        ok: true,
+        status: 200,
+        text: async () => ''
+      } as unknown as Response);
+
+    vi.stubGlobal('fetch', fetchMock);
+
+    await executor.execute({ jobId, userId, runId: 1 });
+
+    const restRequest = fetchMock.mock.calls[0] as [string, RequestInit | undefined];
+    expect(restRequest[0]).toContain('https://api.example.com/orders');
+    expect(restRequest[0]).toContain('status=active');
+    expect(restRequest[0]).toContain('limit=2');
+    expect(String((restRequest[1]?.headers as Record<string, string>)?.authorization)).toBe('Bearer rest-api-secret-token');
+
+    const writeInit = (fetchMock.mock.calls as unknown[][])[2]?.[1] as RequestInit | undefined;
+    const writeBody = JSON.parse(String(writeInit?.body));
+    expect(writeBody.values).toEqual([
+      ['ID', 'Name', 'Amount'],
+      [101, 'Alice', 15],
+      [102, 'Bob', 25]
+    ]);
+
+    db.close();
+  });
+
+  it('rejects REST source when auth token env var is missing', async () => {
+    delete process.env.REST_API_SOURCE_TOKEN;
+
+    const { db, userId, jobId, executor } = await setupFixture({
+      destinationConfig: {
+        spreadsheetId: 'spreadsheet-123',
+        sheetName: 'SyncData',
+        writeMode: 'replace',
+        source: {
+          type: 'rest',
+          url: 'https://api.example.com/orders',
+          authTokenEnvVar: 'REST_API_SOURCE_TOKEN'
+        }
+      }
+    });
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        text: async () => ''
+      }))
+    );
+
+    await expect(executor.execute({ jobId, userId, runId: 1 })).rejects.toThrow(
+      'Missing REST source auth token in env var: REST_API_SOURCE_TOKEN'
+    );
+
+    db.close();
+  });
 });
